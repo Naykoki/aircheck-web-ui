@@ -29,7 +29,7 @@ if st.session_state.username is None:
             st.info("หากยังไม่เห็นหน้าหลัก กดรีเฟรช (Ctrl + R)")
     st.stop()
 
-
+st.sidebar.success(f"👋 สวัสดีคุณ {st.session_state.username}")
 # ---------------------- UI CONFIG ----------------------
 st.set_page_config(page_title="AirCheck TH (Web)", layout="wide")
 st.title("AirCheck TH - Web Version")
