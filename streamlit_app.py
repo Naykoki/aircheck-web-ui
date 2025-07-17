@@ -14,35 +14,94 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-# --------------------- LOGIN SYSTEM ---------------------
+USERS = {
+    "user01": {"password": "userpass", "role": "user"},
+    "user02": {"password": "abc123", "role": "user"},
+    "siwanon": {"password": "036623054", "role": "admin"}
+}
+import streamlit as st
+import pandas as pd
+from datetime import datetime
+import os
+
+import pandas as pd
+import os
+
+def load_users():
+    if os.path.exists("users.csv"):
+        return pd.read_csv("users.csv")
+    else:
+        return pd.DataFrame(columns=["username", "password", "role"])
+
+def save_user(new_user):
+    df = load_users()
+    df = pd.concat([df, pd.DataFrame([new_user])], ignore_index=True)
+    df.to_csv("users.csv", index=False)
+
+# ---------------------- REGISTER UI ----------------------
+with st.expander("📝 สมัครสมาชิก"):
+    new_user = st.text_input("ชื่อผู้ใช้ใหม่")
+    new_pass = st.text_input("รหัสผ่าน", type="password")
+    if st.button("สมัครใช้งาน"):
+        if new_user.strip() == "" or new_pass.strip() == "":
+            st.warning("⚠️ กรุณากรอกให้ครบถ้วน")
+        else:
+            df_users = load_users()
+            if new_user in df_users["username"].values:
+                st.error("❌ ชื่อผู้ใช้นี้ถูกใช้แล้ว กรุณาเลือกชื่อใหม่")
+            else:
+                save_user({"username": new_user, "password": new_pass, "role": "user"})
+                st.success("✅ สมัครสมาชิกเรียบร้อยแล้ว! กรุณาเข้าสู่ระบบ")
+
+# ---------------------- Login + Role ----------------------
 if "username" not in st.session_state:
     st.session_state.username = ""
+    st.session_state.role = ""
 
 if st.session_state.username == "":
-    st.title("👤 ยินดีต้อนรับสู่ AirCheck TH")
-    name = st.text_input("กรุณาใส่ชื่อของคุณเพื่อเข้าใช้งาน:")
-    login_button = st.button("เข้าสู่ระบบ")
+    st.title("🔐 เข้าสู่ระบบ")
+    user_input = st.text_input("Username")
+    pass_input = st.text_input("Password", type="password")
+    login_btn = st.button("เข้าสู่ระบบ")
 
-    if login_button and name.strip() != "":
-        st.session_state.username = name.strip()
-        # บันทึก log
-        try:
-            with open("user_log.csv", "a", encoding="utf-8") as f:
-                now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                f.write(f"{now},{name.strip()}\n")
-        except:
-            pass
+    if login_btn:
+        user_data = USERS.get(user_input)
+        if user_data and user_data["password"] == pass_input:
+            st.session_state.username = user_input
+            st.session_state.role = user_data["role"]
 
-# ✅ ถ้ายังไม่ได้ login → หยุดการทำงานอื่น
-if st.session_state.username == "":
+            # บันทึก log การใช้งาน
+            log_entry = {
+                "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "user": user_input,
+                "role": user_data["role"]
+            }
+            try:
+                if os.path.exists("user_log.csv"):
+                    df_log = pd.read_csv("user_log.csv")
+                    df_log = pd.concat([df_log, pd.DataFrame([log_entry])], ignore_index=True)
+                else:
+                    df_log = pd.DataFrame([log_entry])
+
+                df_log.to_csv("user_log.csv", index=False)
+            except:
+                pass
+
+            st.success("✅ เข้าสู่ระบบสำเร็จแล้ว")
+        else:
+            st.error("❌ ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง")
+
     st.stop()
-st.sidebar.success(f"👋 สวัสดีคุณ {st.session_state.username}")
-st.title("AirCheck TH - Web Version")
-
-# ต่อด้วย UI หลักของคุณได้ทันที เช่น:
-# - เลือกวันที่
-# - กดสร้างตาราง
-# - ดาวน์โหลด Excel ฯลฯ
+st.sidebar.success(f"👋 ยินดีต้อนรับ {st.session_state.username} ({st.session_state.role})")
+if st.session_state.role == "admin":
+    with st.expander("📋 ดูประวัติการเข้าใช้งาน (admin เท่านั้น)"):
+        try:
+            df_log = pd.read_csv("user_log.csv")
+            st.dataframe(df_log.tail(100))
+        except:
+            st.info("ยังไม่มี log หรือไม่สามารถโหลดได้")
+if st.session_state.role == "admin":
+    st.write("คุณคือแอดมิน 🛡️")
 
 # ---------------------- UI CONFIG ----------------------
 st.set_page_config(page_title="AirCheck TH (Web)", layout="wide")
@@ -192,3 +251,12 @@ if st.button("สร้างตารางข้อมูล"):
         df_o3.to_excel(writer, index=False, sheet_name="O3")
 
     st.download_button("📥 ดาวน์โหลดเป็น Excel", data=output.getvalue(), file_name="AirCheckTH_Web.xlsx")
+
+if st.session_state.role == "admin":
+    with st.expander("📋 ดูประวัติการเข้าใช้งาน (admin เท่านั้น)"):
+        try:
+            df_log = pd.read_csv("user_log.csv")
+            st.dataframe(df_log.tail(100))  # แสดงรายการล่าสุด 100 แถว
+        except:
+            st.info("ยังไม่มี log หรือโหลด log ไม่ได้")
+
