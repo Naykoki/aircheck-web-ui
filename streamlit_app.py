@@ -1,5 +1,28 @@
 import streamlit as st
 import pandas as pd
+from datetime import datetime
+
+# ถ้ายังไม่มีชื่อผู้ใช้ ให้ถามก่อน
+if "username" not in st.session_state:
+    st.session_state.username = None
+
+if not st.session_state.username:
+    st.title("👤 ยินดีต้อนรับสู่ AirCheck TH")
+    name = st.text_input("กรุณาใส่ชื่อผู้ใช้งานของคุณ:")
+    if st.button("เข้าสู่ระบบ"):
+        if name.strip() == "":
+            st.warning("กรุณากรอกชื่อก่อนเข้าสู่ระบบ")
+        else:
+            st.session_state.username = name.strip()
+            # บันทึก log การเข้าใช้งาน
+            with open("user_log.csv", "a", encoding="utf-8") as f:
+                now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                f.write(f"{now},{name.strip()}\n")
+            st.experimental_rerun()
+    st.stop()  # หยุดรันโค้ดส่วนอื่นจนกว่าจะกรอกชื่อ
+
+import streamlit as st
+import pandas as pd
 import random
 from datetime import datetime, timedelta
 
