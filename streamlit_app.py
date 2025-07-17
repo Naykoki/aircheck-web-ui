@@ -27,6 +27,13 @@ import os
 import pandas as pd
 import os
 
+import streamlit as st
+import pandas as pd
+from datetime import datetime, timedelta
+import random
+import os
+
+# ---------------------- User Management ----------------------
 def load_users():
     if os.path.exists("users.csv"):
         return pd.read_csv("users.csv")
@@ -38,7 +45,19 @@ def save_user(new_user):
     df = pd.concat([df, pd.DataFrame([new_user])], ignore_index=True)
     df.to_csv("users.csv", index=False)
 
-# ---------------------- REGISTER UI ----------------------
+def get_user_info(username):
+    df = load_users()
+    row = df[df["username"] == username]
+    if not row.empty:
+        return row.iloc[0]["password"], row.iloc[0]["role"]
+    return None, None
+
+# ---------------------- Login Session ----------------------
+if "username" not in st.session_state:
+    st.session_state.username = ""
+    st.session_state.role = ""
+
+# ---------------------- Register Section ----------------------
 with st.expander("📝 สมัครสมาชิก"):
     new_user = st.text_input("ชื่อผู้ใช้ใหม่")
     new_pass = st.text_input("รหัสผ่าน", type="password")
@@ -53,11 +72,7 @@ with st.expander("📝 สมัครสมาชิก"):
                 save_user({"username": new_user, "password": new_pass, "role": "user"})
                 st.success("✅ สมัครสมาชิกเรียบร้อยแล้ว! กรุณาเข้าสู่ระบบ")
 
-# ---------------------- Login + Role ----------------------
-if "username" not in st.session_state:
-    st.session_state.username = ""
-    st.session_state.role = ""
-
+# ---------------------- Login Section ----------------------
 if st.session_state.username == "":
     st.title("🔐 เข้าสู่ระบบ")
     user_input = st.text_input("Username")
@@ -65,16 +80,16 @@ if st.session_state.username == "":
     login_btn = st.button("เข้าสู่ระบบ")
 
     if login_btn:
-        user_data = USERS.get(user_input)
-        if user_data and user_data["password"] == pass_input:
+        pw, role = get_user_info(user_input)
+        if pw and pass_input == pw:
             st.session_state.username = user_input
-            st.session_state.role = user_data["role"]
+            st.session_state.role = role
 
-            # บันทึก log การใช้งาน
+            # Log login
             log_entry = {
                 "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "user": user_input,
-                "role": user_data["role"]
+                "role": role
             }
             try:
                 if os.path.exists("user_log.csv"):
@@ -82,26 +97,31 @@ if st.session_state.username == "":
                     df_log = pd.concat([df_log, pd.DataFrame([log_entry])], ignore_index=True)
                 else:
                     df_log = pd.DataFrame([log_entry])
-
                 df_log.to_csv("user_log.csv", index=False)
             except:
                 pass
 
-            st.success("✅ เข้าสู่ระบบสำเร็จแล้ว")
+            st.success("✅ เข้าสู่ระบบเรียบร้อยแล้ว")
         else:
             st.error("❌ ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง")
-
     st.stop()
+
+# ---------------------- Logged In ----------------------
 st.sidebar.success(f"👋 ยินดีต้อนรับ {st.session_state.username} ({st.session_state.role})")
+
 if st.session_state.role == "admin":
     with st.expander("📋 ดูประวัติการเข้าใช้งาน (admin เท่านั้น)"):
         try:
             df_log = pd.read_csv("user_log.csv")
             st.dataframe(df_log.tail(100))
         except:
-            st.info("ยังไม่มี log หรือไม่สามารถโหลดได้")
+            st.info("ยังไม่มี log หรือโหลด log ไม่ได้")
 if st.session_state.role == "admin":
     st.write("คุณคือแอดมิน 🛡️")
+
+
+# (ต่อส่วน UI เดิมของคุณจากตรงนี้ เช่น เลือกวันที่, สร้างตาราง, สร้าง Excel ฯลฯ)
+
 
 # ---------------------- UI CONFIG ----------------------
 st.set_page_config(page_title="AirCheck TH (Web)", layout="wide")
