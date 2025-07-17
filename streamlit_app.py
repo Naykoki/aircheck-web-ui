@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 import random
 import os
 
+
 # ---------------------- Input User Name ----------------------
 st.set_page_config(page_title="AirCheck TH (Web)", layout="wide")
 
