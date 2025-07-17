@@ -4,7 +4,6 @@ from datetime import datetime, timedelta
 import random
 import os
 
-
 # ---------------------- Input User Name ----------------------
 st.set_page_config(page_title="AirCheck TH (Web)", layout="wide")
 
@@ -43,7 +42,7 @@ if st.session_state.username == "":
                 pass
 
             st.success("✅ เข้าสู่ระบบเรียบร้อยแล้ว")
-            st.experimental_rerun()
+            st.rerun()
     st.stop()
 
 # ---------------------- Header ----------------------
