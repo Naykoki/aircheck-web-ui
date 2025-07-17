@@ -6,11 +6,15 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
+import streamlit as st
+import pandas as pd
+from datetime import datetime
+
 # --------------------- LOGIN SYSTEM ---------------------
 if "username" not in st.session_state:
-    st.session_state.username = None
+    st.session_state.username = ""
 
-if st.session_state.username is None:
+if st.session_state.username == "":
     st.title("👤 ยินดีต้อนรับสู่ AirCheck TH")
     name = st.text_input("กรุณาใส่ชื่อของคุณเพื่อเข้าใช้งาน:")
     if st.button("เข้าสู่ระบบ"):
@@ -18,15 +22,18 @@ if st.session_state.username is None:
             st.warning("⚠️ กรุณากรอกชื่อก่อนเข้าสู่ระบบ")
         else:
             st.session_state.username = name.strip()
-            # ✅ บันทึก log การเข้าใช้งาน
+            # บันทึก log
             try:
                 with open("user_log.csv", "a", encoding="utf-8") as f:
                     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     f.write(f"{now},{name.strip()}\n")
             except:
-                pass  # ป้องกัน error บน Streamlit Cloud ที่ไม่อนุญาตให้เขียนไฟล์
+                pass
             st.success("✅ เข้าสู่ระบบสำเร็จแล้ว!")
-            st.info("หากยังไม่เห็นหน้าหลัก กดรีเฟรช (Ctrl + R)")
+            st.experimental_rerun()
+
+# ✅ ถ้ายังไม่ login → ไม่ให้แสดงเนื้อหาอื่น
+if st.session_state.username == "":
     st.stop()
 
 st.sidebar.success(f"👋 สวัสดีคุณ {st.session_state.username}")
