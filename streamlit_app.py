@@ -10,6 +10,10 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
+import streamlit as st
+import pandas as pd
+from datetime import datetime
+
 # --------------------- LOGIN SYSTEM ---------------------
 if "username" not in st.session_state:
     st.session_state.username = ""
@@ -17,26 +21,29 @@ if "username" not in st.session_state:
 if st.session_state.username == "":
     st.title("👤 ยินดีต้อนรับสู่ AirCheck TH")
     name = st.text_input("กรุณาใส่ชื่อของคุณเพื่อเข้าใช้งาน:")
-    if st.button("เข้าสู่ระบบ"):
-        if name.strip() == "":
-            st.warning("⚠️ กรุณากรอกชื่อก่อนเข้าสู่ระบบ")
-        else:
-            st.session_state.username = name.strip()
-            # บันทึก log
-            try:
-                with open("user_log.csv", "a", encoding="utf-8") as f:
-                    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    f.write(f"{now},{name.strip()}\n")
-            except:
-                pass
-            st.success("✅ เข้าสู่ระบบสำเร็จแล้ว!")
-            st.experimental_rerun()
+    login_button = st.button("เข้าสู่ระบบ")
 
-# ✅ ถ้ายังไม่ login → ไม่ให้แสดงเนื้อหาอื่น
+    if login_button and name.strip() != "":
+        st.session_state.username = name.strip()
+        # บันทึก log
+        try:
+            with open("user_log.csv", "a", encoding="utf-8") as f:
+                now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                f.write(f"{now},{name.strip()}\n")
+        except:
+            pass
+
+# ✅ ถ้ายังไม่ได้ login → หยุดการทำงานอื่น
 if st.session_state.username == "":
     st.stop()
-
 st.sidebar.success(f"👋 สวัสดีคุณ {st.session_state.username}")
+st.title("AirCheck TH - Web Version")
+
+# ต่อด้วย UI หลักของคุณได้ทันที เช่น:
+# - เลือกวันที่
+# - กดสร้างตาราง
+# - ดาวน์โหลด Excel ฯลฯ
+
 # ---------------------- UI CONFIG ----------------------
 st.set_page_config(page_title="AirCheck TH (Web)", layout="wide")
 st.title("AirCheck TH - Web Version")
