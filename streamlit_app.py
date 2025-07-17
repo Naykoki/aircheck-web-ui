@@ -15,9 +15,7 @@ import pandas as pd
 from datetime import datetime
 
 USERS = {
-    "user01": {"password": "userpass", "role": "user"},
-    "user02": {"password": "abc123", "role": "user"},
-    "siwanon": {"password": "036623054", "role": "admin"}
+    "Siwanon": {"password": "036623054", "role": "admin"}
 }
 import streamlit as st
 import pandas as pd
