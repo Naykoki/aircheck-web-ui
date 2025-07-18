@@ -24,7 +24,7 @@ with st.sidebar:
             st.stop()
         st.session_state.user = username
         st.session_state.role = "admin" if username.lower() == "siwanon" else "user"
-        st.rerun()
+        st.experimental_rerun()
 
 if not st.session_state.user:
     st.stop()
@@ -108,7 +108,7 @@ hourly_data = get_hourly_meteostat(province, start_date, num_days)
 
 # ---------------- การจำลอง ----------------
 def simulate(var, sit, hour, wind_dir, ref):
-    scale_factor_ws = 0.75  # ลดทอน WS เหลือ 75% ของค่าที่จำลองได้
+    scale_factor_ws = 0.7  # ลดทอน WS เหลือประมาณ 70%
     base = ref if ref is not None else (random.uniform(2, 6) if var not in ["Temp", "RH", "WS"] else 27)
     multiplier = 1.0
     add = 0.0
@@ -152,8 +152,11 @@ def simulate(var, sit, hour, wind_dir, ref):
         return None
     if var == "WS":
         val = base + add + random.uniform(-1.0, 1.5)
-        return round(val * scale_factor_ws, 2)
+        scaled_val = val * scale_factor_ws
+        # บังคับ WS ให้อยู่ระหว่าง 0.5 - 4.0 m/s
+        return round(min(max(scaled_val, 0.5), 4.0), 2)
     if var == "WD":
+        # เปลี่ยน WD เป็นองศา ใช้ ref ถ้ามี
         return ref if ref is not None else 90
     if var == "Temp":
         return round(base + add + random.uniform(-2, 2), 2)
