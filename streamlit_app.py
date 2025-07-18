@@ -164,6 +164,8 @@ for i in range(num_days):
 # ✅ ต่อส่วน simulate, generate, download Excel ได้เลยถัดจากนี้
 ...
 
+... (ตัดเนื้อหาส่วนต้นออกเพื่อความชัดเจน)
+
 # ---------------------- SIMULATION FUNCTION ----------------------
 def simulate(var, day_sit, hour, wind_dir, factory_dir):
     base = random.uniform(2, 6)
