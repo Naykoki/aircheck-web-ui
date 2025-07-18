@@ -87,8 +87,6 @@ hourly_data = get_hourly_meteostat(province, start_date, num_days)
 
 # ---------------- การจำลอง ----------------
 def simulate(var, sit, hour, wind_dir, ref):
-    scale_factor_ws = 0.7  # ลดทอน WS เหลือประมาณ 70% จากค่าอ้างอิงจริง
-
     multiplier = 1.0
     add = 0.0
 
@@ -124,7 +122,6 @@ def simulate(var, sit, hour, wind_dir, ref):
     if near_factory and wind_dir == factory_direction and var in ["NO2", "SO2"]:
         multiplier *= 1.5
 
-    # ค่าเริ่มต้นกรณีไม่มี ref
     base = ref if ref is not None else (random.uniform(2, 6) if var not in ["Temp", "RH", "WS"] else 27)
 
     if var == "NO":
@@ -137,13 +134,10 @@ def simulate(var, sit, hour, wind_dir, ref):
         if ref is None:
             val = random.uniform(0.5, 4)
         else:
-            val = ref * scale_factor_ws
+            val = ref * 0.8  # ลดทอน 80%
         val += add
-        # บังคับ WS ให้อยู่ในช่วง 0.5 - 4.0 m/s
-        val = max(0.5, min(val, 4.0))
         return round(val, 2)
     if var == "WD":
-        # เปลี่ยน WD เป็นองศา ใช้ ref ถ้ามี
         return ref if ref is not None else 90
     if var == "Temp":
         return round(base + add + random.uniform(-2, 2), 2)
