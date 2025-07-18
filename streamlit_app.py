@@ -10,29 +10,6 @@ st.set_page_config(page_title="AirCheck TH", layout="wide")
 st.image("logo.png", width=120)
 st.title("🌍 AirCheck TH - ระบบประเมินคุณภาพอากาศจำลอง (รายชั่วโมง)")
 
-# ---------------- Login ----------------
-if "user" not in st.session_state:
-    st.session_state.user = None
-    st.session_state.role = None
-
-with st.sidebar:
-    st.header("🔐 เข้าสู่ระบบ")
-    username = st.text_input("ชื่อผู้ใช้งาน")
-    login_clicked = st.button("เข้าสู่ระบบ")
-    if login_clicked:
-        if username.strip() == "":
-            st.warning("กรุณากรอกชื่อผู้ใช้งาน")
-            st.stop()
-        st.session_state.user = username
-        st.session_state.role = "admin" if username.lower() == "siwanon" else "user"
-        st.experimental_rerun()  # เรียก rerun เมื่อกดปุ่มจริง ๆ เท่านั้น
-
-
-if not st.session_state.user:
-    st.stop()
-
-st.sidebar.success(f"ยินดีต้อนรับ: {st.session_state.user} ({st.session_state.role})")
-
 # ---------------- Province ----------------
 province = st.selectbox("📍 จังหวัดที่ต้องการดึงข้อมูลอ้างอิง", [
     "กรุงเทพมหานคร", "ระยอง", "อยุธยา", "สระบุรี", "ราชบุรี", "ชลบุรี", "จันทบุรี"
