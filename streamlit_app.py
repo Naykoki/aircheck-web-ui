@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import random
+import requests
 from datetime import datetime, timedelta
 from io import BytesIO
 from meteostat import Point, Hourly
@@ -24,6 +25,7 @@ province_coords = {
     "ชลบุรี": (13.3611, 100.9847),
     "จันทบุรี": (12.6112, 102.1035)
 }
+lat, lon = province_coords[province]
 
 # ---------------- USER INPUT ----------------
 st.markdown("### กำหนดวันที่และจำนวนวัน")
@@ -65,26 +67,54 @@ for i in range(num_days):
             sit[key] = st.selectbox(f"{key} (วันที่ {i+1})", opts, key=f"{key}_{i}")
         day_situations.append(sit)
 
-# ---------------- Meteostat ----------------
-def get_hourly_meteostat(province, start_date, num_days):
-    lat, lon = province_coords.get(province, (13.7563, 100.5018))
+# ---------------- Fetch Meteostat Data ----------------
+@st.cache_data
+def get_hourly_meteostat(lat, lon, start_date, num_days):
     location = Point(lat, lon)
     start = datetime.combine(start_date, datetime.min.time())
     end = start + timedelta(days=num_days) - timedelta(seconds=1)
+    data = Hourly(location, start, end).fetch()
 
-    data = Hourly(location, start, end)
-    data = data.fetch()
-
+    # เติมค่า NaN ด้วยค่ามาตรฐาน
     data["wspd"].fillna(2.5, inplace=True)
     data["wdir"].fillna(90, inplace=True)
     data["temp"].fillna(27.0, inplace=True)
     data["rhum"].fillna(65.0, inplace=True)
     return data
 
-hourly_data = get_hourly_meteostat(province, start_date, num_days)
+# ---------------- Fetch Open-Meteo Air Quality ----------------
+@st.cache_data
+def get_openmeteo_aq(lat, lon, start_date, num_days):
+    sd = start_date.strftime("%Y-%m-%d")
+    ed = (start_date + timedelta(days=num_days - 1)).strftime("%Y-%m-%d")
+
+    url = (
+        f"https://air-quality-api.open-meteo.com/v1/air-quality"
+        f"?latitude={lat}&longitude={lon}"
+        f"&start_date={sd}&end_date={ed}"
+        f"&hourly=carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone"
+    )
+    r = requests.get(url)
+    if r.ok:
+        j = r.json().get("hourly", {})
+        df = pd.DataFrame({
+            "time": pd.to_datetime(j.get("time", [])),
+            "CO_ref": j.get("carbon_monoxide", []),
+            "NO2_ref": j.get("nitrogen_dioxide", []),
+            "SO2_ref": j.get("sulphur_dioxide", []),
+            "O3_ref": j.get("ozone", []),
+        }).set_index("time")
+        return df
+    else:
+        st.warning("ไม่สามารถดึงข้อมูลคุณภาพอากาศจาก Open-Meteo ได้")
+        return pd.DataFrame()
+
+# ---------------- Load Data ----------------
+hourly_data = get_hourly_meteostat(lat, lon, start_date, num_days)
+aq_ref_data = get_openmeteo_aq(lat, lon, start_date, num_days)
 
 # ---------------- Simulate ----------------
-def simulate(var, sit, hour, wind_dir, ref):
+def simulate(var, sit, hour, wind_dir, ref, ref_aq=None):
     multiplier = 1.0
     add = 0.0
 
@@ -129,7 +159,11 @@ def simulate(var, sit, hour, wind_dir, ref):
     if near_factory and wind_dir == factory_direction and var in ["NO2", "SO2"]:
         multiplier *= 1.5
 
-    base = ref if ref is not None else random.uniform(2, 6)
+    # ใช้ค่าอ้างอิงจาก Meteostat หรือ Open-Meteo (ถ้ามี)
+    if var in ["NO2", "SO2", "CO", "O3"]:
+        base = ref_aq if ref_aq is not None else random.uniform(2, 6)
+    else:
+        base = ref if ref is not None else random.uniform(2, 6)
 
     if var == "NO":
         return round(base * multiplier + add + random.uniform(0.5, 2.5), 2)
@@ -158,7 +192,7 @@ def simulate(var, sit, hour, wind_dir, ref):
 
     return round(base * multiplier + add, 2)
 
-# ---------------- Generate + Export ----------------
+# ---------------- Generate & Export ----------------
 if st.button("📊 สร้างข้อมูลและดาวน์โหลด Excel"):
     records = []
     for i in range(num_days):
@@ -170,22 +204,34 @@ if st.button("📊 สร้างข้อมูลและดาวน์โ�
                 ref_row = hourly_data.loc[time_dt]
             except KeyError:
                 ref_row = None
+            try:
+                ref_aq_row = aq_ref_data.loc[time_dt]
+            except KeyError:
+                ref_aq_row = None
 
-            row = {"Date": date.strftime("%Y-%m-%d"), "Time": time_dt.strftime("%H:%M:%S")}
             wind_dir = sit["ทิศลม"]
+            row = {"Date": date.strftime("%Y-%m-%d"), "Time": time_dt.strftime("%H:%M:%S")}
 
             refs = {
                 "WS": ref_row["wspd"] if ref_row is not None else None,
                 "WD": ref_row["wdir"] if ref_row is not None else None,
                 "Temp": ref_row["temp"] if ref_row is not None else None,
-                "RH": ref_row["rhum"] if ref_row is not None else None
+                "RH": ref_row["rhum"] if ref_row is not None else None,
+                "Pressure": None
+            }
+            aq_refs = {
+                "NO2": ref_aq_row["NO2_ref"] if ref_aq_row is not None else None,
+                "SO2": ref_aq_row["SO2_ref"] if ref_aq_row is not None else None,
+                "CO": ref_aq_row["CO_ref"] if ref_aq_row is not None else None,
+                "O3": ref_aq_row["O3_ref"] if ref_aq_row is not None else None
             }
 
             for var in params:
-                ref = refs.get(var, None)
                 if var == "NOx":
                     continue
-                row[var] = simulate(var, sit, hour, wind_dir, ref)
+                ref = refs.get(var, None)
+                ref_aq = aq_refs.get(var, None)
+                row[var] = simulate(var, sit, hour, wind_dir, ref, ref_aq)
 
             if "NOx" in params and "NO" in row and "NO2" in row:
                 row["NOx"] = round(row["NO"] + row["NO2"], 2)
@@ -196,10 +242,18 @@ if st.button("📊 สร้างข้อมูลและดาวน์โ�
     st.success("✅ สร้างข้อมูลสำเร็จแล้ว")
     st.dataframe(df.head(48))
 
+    # Export Excel
     output = BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         df.to_excel(writer, index=False, sheet_name="Simulated Data")
-        hourly_data.reset_index().to_excel(writer, index=False, sheet_name="Reference Data")
+        # Export reference Meteostat data
+        hourly_data_reset = hourly_data.reset_index()
+        hourly_data_reset.to_excel(writer, index=False, sheet_name="Meteostat Reference")
+
+        # Export Open-Meteo Air Quality reference
+        if not aq_ref_data.empty:
+            aq_ref_data_reset = aq_ref_data.reset_index()
+            aq_ref_data_reset.to_excel(writer, index=False, sheet_name="OpenMeteo AQ Reference")
 
     file_name = f"AirCheckTH_{province}_{start_date.strftime('%Y%m%d')}.xlsx"
     st.download_button("📥 ดาวน์โหลดไฟล์ Excel", output.getvalue(), file_name=file_name)
