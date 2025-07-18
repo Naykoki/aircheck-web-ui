@@ -18,13 +18,14 @@ if "user" not in st.session_state:
 with st.sidebar:
     st.header("🔐 เข้าสู่ระบบ")
     username = st.text_input("ชื่อผู้ใช้งาน")
-   if st.button("เข้าสู่ระบบ"):
-    if username.strip() == "":
-        st.warning("กรุณากรอกชื่อผู้ใช้งาน")
-        st.stop()
-    st.session_state.user = username
-    st.session_state.role = "admin" if username.lower() == "siwanon" else "user"
-    st.experimental_rerun()
+    if st.button("เข้าสู่ระบบ"):
+        if username.strip() == "":
+            st.warning("กรุณากรอกชื่อผู้ใช้งาน")
+            st.stop()
+        st.session_state.user = username
+        st.session_state.role = "admin" if username.lower() == "siwanon" else "user"
+        st.rerun()  # <-- แก้ไขตรงนี้
+
 if not st.session_state.user:
     st.stop()
 
