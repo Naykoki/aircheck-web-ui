@@ -18,13 +18,15 @@ if "user" not in st.session_state:
 with st.sidebar:
     st.header("🔐 เข้าสู่ระบบ")
     username = st.text_input("ชื่อผู้ใช้งาน")
-    if st.button("เข้าสู่ระบบ"):
+    login_clicked = st.button("เข้าสู่ระบบ")
+    if login_clicked:
         if username.strip() == "":
             st.warning("กรุณากรอกชื่อผู้ใช้งาน")
             st.stop()
         st.session_state.user = username
         st.session_state.role = "admin" if username.lower() == "siwanon" else "user"
-        st.experimental_rerun()
+        st.experimental_rerun()  # เรียก rerun เมื่อกดปุ่มจริง ๆ เท่านั้น
+
 
 if not st.session_state.user:
     st.stop()
