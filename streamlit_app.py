@@ -87,11 +87,12 @@ hourly_data = get_hourly_meteostat(province, start_date, num_days)
 
 # ---------------- การจำลอง ----------------
 def simulate(var, sit, hour, wind_dir, ref):
-    scale_factor_ws = 0.7  # ลดทอน WS เหลือประมาณ 70%
-    base = ref if ref is not None else (random.uniform(2, 6) if var not in ["Temp", "RH", "WS"] else 27)
+    scale_factor_ws = 0.7  # ลดทอน WS เหลือประมาณ 70% จากค่าอ้างอิงจริง
+
     multiplier = 1.0
     add = 0.0
 
+    # ปรับตามสถานการณ์
     if sit["ฝน"] in ["ตกปานกลาง", "ตกหนัก"]:
         multiplier *= 0.6
         add -= 1
@@ -123,6 +124,9 @@ def simulate(var, sit, hour, wind_dir, ref):
     if near_factory and wind_dir == factory_direction and var in ["NO2", "SO2"]:
         multiplier *= 1.5
 
+    # ค่าเริ่มต้นกรณีไม่มี ref
+    base = ref if ref is not None else (random.uniform(2, 6) if var not in ["Temp", "RH", "WS"] else 27)
+
     if var == "NO":
         return round(base * multiplier + add + random.uniform(0.5, 2.5), 2)
     if var == "NO2":
@@ -130,10 +134,14 @@ def simulate(var, sit, hour, wind_dir, ref):
     if var == "NOx":
         return None
     if var == "WS":
-        val = base + add + random.uniform(-1.0, 1.5)
-        scaled_val = val * scale_factor_ws
-        # บังคับ WS ให้อยู่ระหว่าง 0.5 - 4.0 m/s
-        return round(min(max(scaled_val, 0.5), 4.0), 2)
+        if ref is None:
+            val = random.uniform(0.5, 4)
+        else:
+            val = ref * scale_factor_ws
+        val += add
+        # บังคับ WS ให้อยู่ในช่วง 0.5 - 4.0 m/s
+        val = max(0.5, min(val, 4.0))
+        return round(val, 2)
     if var == "WD":
         # เปลี่ยน WD เป็นองศา ใช้ ref ถ้ามี
         return ref if ref is not None else 90
