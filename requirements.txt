@@ -1,1 +1,5 @@
 meteostat
+streamlit
+pandas
+openpyxl
+meteostat
