@@ -3,6 +3,97 @@ import pandas as pd
 import random
 from datetime import datetime, timedelta
 from io import BytesIO
+import streamlit as st
+import pandas as pd
+from datetime import datetime, timedelta
+import random
+import os
+
+# ---------------------- User Management ----------------------
+def load_users():
+    if os.path.exists("users.csv"):
+        return pd.read_csv("users.csv")
+    else:
+        return pd.DataFrame(columns=["username", "password", "role"])
+
+def save_user(new_user):
+    df = load_users()
+    df = pd.concat([df, pd.DataFrame([new_user])], ignore_index=True)
+    df.to_csv("users.csv", index=False)
+
+def get_user_info(username):
+    df = load_users()
+    row = df[df["username"] == username]
+    if not row.empty:
+        return row.iloc[0]["password"], row.iloc[0]["role"]
+    return None, None
+
+# ---------------------- Login Session ----------------------
+if "username" not in st.session_state:
+    st.session_state.username = ""
+    st.session_state.role = ""
+
+# ---------------------- Register Section ----------------------
+with st.expander("📝 สมัครสมาชิก"):
+    new_user = st.text_input("ชื่อผู้ใช้ใหม่")
+    new_pass = st.text_input("รหัสผ่าน", type="password")
+    if st.button("สมัครใช้งาน"):
+        if new_user.strip() == "" or new_pass.strip() == "":
+            st.warning("⚠️ กรุณากรอกให้ครบถ้วน")
+        else:
+            df_users = load_users()
+            if new_user in df_users["username"].values:
+                st.error("❌ ชื่อผู้ใช้นี้ถูกใช้แล้ว กรุณาเลือกชื่อใหม่")
+            else:
+                save_user({"username": new_user, "password": new_pass, "role": "user"})
+                st.success("✅ สมัครสมาชิกเรียบร้อยแล้ว! กรุณาเข้าสู่ระบบ")
+
+# ---------------------- Login Section ----------------------
+if st.session_state.username == "":
+    st.title("🔐 เข้าสู่ระบบ")
+    user_input = st.text_input("Username")
+    pass_input = st.text_input("Password", type="password")
+    login_btn = st.button("เข้าสู่ระบบ")
+
+    if login_btn:
+        pw, role = get_user_info(user_input)
+        if pw and pass_input == pw:
+            st.session_state.username = user_input
+            st.session_state.role = role
+
+            # Log login
+            log_entry = {
+                "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "user": user_input,
+                "role": role
+            }
+            try:
+                if os.path.exists("user_log.csv"):
+                    df_log = pd.read_csv("user_log.csv")
+                    df_log = pd.concat([df_log, pd.DataFrame([log_entry])], ignore_index=True)
+                else:
+                    df_log = pd.DataFrame([log_entry])
+                df_log.to_csv("user_log.csv", index=False)
+            except:
+                pass
+
+            st.success("✅ เข้าสู่ระบบเรียบร้อยแล้ว")
+        else:
+            st.error("❌ ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง")
+    st.stop()
+
+# ---------------------- Logged In ----------------------
+st.sidebar.success(f"👋 ยินดีต้อนรับ {st.session_state.username} ({st.session_state.role})")
+
+if st.session_state.role == "admin":
+    with st.expander("📋 ดูประวัติการเข้าใช้งาน (admin เท่านั้น)"):
+        try:
+            df_log = pd.read_csv("user_log.csv")
+            st.dataframe(df_log.tail(100))
+        except:
+            st.info("ยังไม่มี log หรือโหลด log ไม่ได้")
+
+# (ต่อส่วน UI เดิมของคุณจากตรงนี้ เช่น เลือกวันที่, สร้างตาราง, สร้าง Excel ฯลฯ)
 
 # ---------------------- PAGE CONFIG ----------------------
 st.set_page_config(page_title="AirCheck TH (Web)", layout="wide")
