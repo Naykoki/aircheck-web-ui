@@ -150,9 +150,11 @@ def simulate(var, sit, hour, wind_dir, ref):
     if var == "NOx":
         return None
     if var == "WS":
-        return round(min(4, base + add + random.uniform(-1.0, 1.5)), 2)
+        # ไม่จำกัด max 4 เพื่อให้ขยับได้จริง
+        return round(base + add + random.uniform(-1.0, 1.5), 2)
     if var == "WD":
-        return wind_dir
+        # คืนค่าองศาตามอ้างอิงเลย
+        return ref if ref is not None else 90
     if var == "Temp":
         return round(base + add + random.uniform(-2, 2), 2)
     if var == "RH":
@@ -216,8 +218,20 @@ if st.button("📊 สร้างข้อมูลและดาวน์โ�
     st.success("✅ สร้างข้อมูลสำเร็จแล้ว")
     st.dataframe(df.head(48))
 
+    # เตรียม DataFrame สำหรับ Excel export
     df_env = df[[c for c in ["Date", "Time", "WS", "WD", "Temp", "RH", "Pressure"] if c in df.columns]]
     df_nox = df[["Date", "Time", "NO", "NO2", "NOx"]] if "NO" in df.columns else pd.DataFrame()
+
+    # แปลงข้อมูล Reference Data ให้อยู่ในรูป Excel sheet
+    df_ref = hourly_data.reset_index()[["time", "wspd", "wdir", "temp", "rhum"]]
+    df_ref.rename(columns={
+        "time": "DateTime",
+        "wspd": "WS (m/s)",
+        "wdir": "WD (degree)",
+        "temp": "Temperature (°C)",
+        "rhum": "Relative Humidity (%)"
+    }, inplace=True)
+
     output = BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         if not df_nox.empty:
@@ -227,6 +241,9 @@ if st.button("📊 สร้างข้อมูลและดาวน์โ�
         for p in ["SO2", "CO", "O3"]:
             if p in df.columns:
                 df[["Date", "Time", p]].to_excel(writer, index=False, sheet_name=p)
+
+        # เพิ่ม sheet สำหรับ Reference Data
+        df_ref.to_excel(writer, index=False, sheet_name="Reference Data")
 
     file_name = f"AirCheckTH_{province}_{start_date.strftime('%Y%m%d')}.xlsx"
     st.download_button("📥 ดาวน์โหลดไฟล์ Excel", output.getvalue(), file_name=file_name)
