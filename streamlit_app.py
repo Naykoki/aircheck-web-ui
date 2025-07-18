@@ -1,126 +1,68 @@
 import streamlit as st
 import pandas as pd
-import random
-from datetime import datetime, timedelta
-from io import BytesIO
+import numpy as np
+import datetime
 from meteostat import Point, Hourly
+import random
+import openpyxl
 
-# ---------------- CONFIG ----------------
-st.set_page_config(page_title="AirCheck TH", layout="wide")
-st.image("logo.png", width=120)
-st.title("🌍 AirCheck TH - ระบบประเมินคุณภาพอากาศจำลอง (รายชั่วโมง)")
+# ตั้งค่าพิกัดพื้นที่ (กรุงเทพฯ)
+location = Point(13.7563, 100.5018)
 
-# ---------------- Province ----------------
-province = st.selectbox("📍 จังหวัดที่ต้องการดึงข้อมูลอ้างอิง", [
-    "กรุงเทพมหานคร", "ระยอง", "อยุธยา", "สระบุรี", "ราชบุรี", "ชลบุรี", "จันทบุรี"
-])
-
-province_coords = {
-    "กรุงเทพมหานคร": (13.7563, 100.5018),
-    "ระยอง": (12.6814, 101.2770),
-    "อยุธยา": (14.3532, 100.5689),
-    "สระบุรี": (14.5289, 100.9105),
-    "ราชบุรี": (13.5360, 99.8171),
-    "ชลบุรี": (13.3611, 100.9847),
-    "จันทบุรี": (12.6112, 102.1035)
+# ตัวเลือกสถานการณ์
+situation_options = {
+    "ฝน": ["ไม่มีฝน", "ตกเล็กน้อย", "ตกปานกลาง", "ตกหนัก"],
+    "แดด": ["ไม่มีแดด", "แดดอ่อน", "แดดแรง"],
+    "ลม": ["นิ่ง/ไม่มีลม", "ลมเบา", "แรง"],
+    "อุณหภูมิ": ["ปกติ", "ร้อนจัด", "หนาวจัด"],
+    "กลิ่น": ["ไม่มีกลิ่น", "มีกลิ่น"],
+    "อื่นๆ": ["-", "รถเยอะ", "มีการเผาขยะ"]
 }
 
-# ---------------- USER INPUT ----------------
-st.markdown("### กำหนดวันที่และจำนวนวัน")
-start_date = st.date_input("วันที่เริ่มต้น (ต้องไม่เกินวันปัจจุบัน)", datetime(2025, 7, 15))
-num_days = st.slider("จำนวนวัน (1–8)", 1, 8, 1)
-
-if start_date > datetime.now().date():
-    st.warning("เลือกวันที่ไม่ควรเกินวันที่วันนี้")
-    st.stop()
-
-factory_direction = st.selectbox("ทิศทางโรงงาน", ["NE", "NW", "SE", "SW"])
-
-st.markdown("### 🏞️ สภาพแวดล้อม")
-near_road = st.checkbox("ใกล้ถนน")
-near_factory = st.checkbox("ใกล้โรงงาน")
-
-params = st.multiselect("📌 พารามิเตอร์ที่ต้องการคำนวณ", [
-    "NO", "NO2", "NOx", "SO2", "CO", "O3", "WS", "WD", "Temp", "RH", "Pressure"
-], default=["NO", "NO2", "NOx", "WS", "WD", "Temp", "RH", "Pressure"])
-
-sit_options = {
-    "แดด": ["ไม่มี", "แดดอ่อน", "แดดแรง"],
-    "ลม": ["ไม่มี", "นิ่ง/ไม่มีลม", "เบา", "ปานกลาง", "แรง"],
-    "กลิ่น": ["ไม่มี", "มีกลิ่น"],
-    "อุณหภูมิ": ["ไม่มี", "หนาวจัด", "หนาว", "เย็น", "ปกติ", "ร้อน", "ร้อนจัด"],
-    "ท้องฟ้า": ["ไม่มี", "แจ่มใส", "มีเมฆบางส่วน", "เมฆมาก"],
-    "ฝน": ["ไม่มี", "ตกเล็กน้อย", "ตกปานกลาง", "ตกหนัก"],
-    "อื่นๆ": ["ไม่มี", "รถเยอะ", "มีการเผาขยะ"]
-}
-
-st.markdown("### 🌤️ สถานการณ์รายวัน")
-day_situations = []
-for i in range(num_days):
-    with st.expander(f"📅 วันที่ {i+1}"):
-        sit = {}
-        wind_dir = st.selectbox(f"ทิศลม (วันที่ {i+1})", ["NE", "NW", "SE", "SW"], key=f"wd_{i}")
-        sit["ทิศลม"] = wind_dir
-        for key, opts in sit_options.items():
-            sit[key] = st.selectbox(f"{key} (วันที่ {i+1})", opts, key=f"{key}_{i}")
-        day_situations.append(sit)
-
-# ---------------- ดึงข้อมูลรายชั่วโมงจาก Meteostat ----------------
-def get_hourly_meteostat(province, start_date, num_days):
-    lat, lon = province_coords.get(province, (13.7563, 100.5018))
-    location = Point(lat, lon)
-
-    start = datetime.combine(start_date, datetime.min.time())
-    end = start + timedelta(days=num_days) - timedelta(seconds=1)
-
+@st.cache_data
+def get_weather_data(date):
+    start = datetime.datetime.combine(date, datetime.time(0, 0))
+    end = datetime.datetime.combine(date, datetime.time(23, 59))
     data = Hourly(location, start, end)
-    data = data.fetch()
+    return data.fetch()
 
-    data["wspd"].fillna(2.5, inplace=True)
-    data["wdir"].fillna(90, inplace=True)
-    data["temp"].fillna(27.0, inplace=True)
-    data["rhum"].fillna(65.0, inplace=True)
-
-    return data
-
-hourly_data = get_hourly_meteostat(province, start_date, num_days)
-
-# ---------------- การจำลอง ----------------
 def simulate(var, sit, hour, wind_dir, ref):
     multiplier = 1.0
     add = 0.0
 
-    # ปรับตามสถานการณ์
+    # ปรับสถานการณ์
     if sit["ฝน"] in ["ตกปานกลาง", "ตกหนัก"]:
         multiplier *= 0.6
         add -= 1
     elif sit["ฝน"] == "ตกเล็กน้อย":
         multiplier *= 0.85
+
     if sit["แดด"] == "แดดแรง":
-        add += 4
         multiplier *= 1.1
+        add += 4
     elif sit["แดด"] == "แดดอ่อน":
         add += 2
+
     if sit["ลม"] == "แรง":
-        add += 3 if var == "WS" else 0
+        if var == "WS":
+            add += 3
         multiplier *= 0.7
     elif sit["ลม"] == "นิ่ง/ไม่มีลม":
         multiplier *= 1.3
         add -= 0.5
+
     if sit["อุณหภูมิ"] == "ร้อนจัด" and var == "Temp":
         add += 4
     if sit["อุณหภูมิ"] == "หนาวจัด" and var == "Temp":
         add -= 4
+
     if sit["กลิ่น"] == "มีกลิ่น" and var in ["NO2", "SO2", "CO"]:
         multiplier *= 1.2
+
     if sit["อื่นๆ"] == "รถเยอะ" and var in ["NO", "NO2", "CO"]:
         multiplier *= 1.4
     if sit["อื่นๆ"] == "มีการเผาขยะ" and var in ["CO", "O3", "SO2"]:
         multiplier *= 1.3
-    if near_road and var in ["NO", "NO2", "CO"]:
-        multiplier *= 1.25
-    if near_factory and wind_dir == factory_direction and var in ["NO2", "SO2"]:
-        multiplier *= 1.5
 
     base = ref if ref is not None else (random.uniform(2, 6) if var not in ["Temp", "RH", "WS"] else 27)
 
@@ -131,12 +73,8 @@ def simulate(var, sit, hour, wind_dir, ref):
     if var == "NOx":
         return None
     if var == "WS":
-        if ref is None:
-            val = random.uniform(0.5, 4)
-        else:
-            val = ref * 0.8  # ลดทอน 80%
-        val += add
-        return round(val, 2)
+        val = ref * multiplier + add + random.uniform(0.1, 0.5) if ref is not None else random.uniform(0.5, 4)
+        return round(val * 0.15, 2)  # ลดลง 85%
     if var == "WD":
         return ref if ref is not None else 90
     if var == "Temp":
@@ -151,83 +89,53 @@ def simulate(var, sit, hour, wind_dir, ref):
         return round(base * multiplier + add + random.uniform(0.1, 1.2), 2)
     if var == "O3":
         return round(30 + add + random.uniform(5, 25), 2)
+
     return round(base * multiplier + add, 2)
 
-# ---------------- สร้างข้อมูล ----------------
-if st.button("📊 สร้างข้อมูลและดาวน์โหลด Excel"):
-    records = []
-    for i in range(num_days):
-        date = start_date + timedelta(days=i)
-        sit = day_situations[i]
-        for hour in range(24):
-            time_dt = datetime.combine(date, datetime.min.time()) + timedelta(hours=hour)
-            time_str = time_dt.strftime("%H:%M:%S")
+# UI
+st.title("จำลองคุณภาพอากาศจากสถานการณ์จำลอง")
 
-            try:
-                ref_row = hourly_data.loc[time_dt]
-            except KeyError:
-                ref_row = None
+date = st.date_input("เลือกวันที่อ้างอิง", datetime.date(2025, 7, 15))
+meteo_data = get_weather_data(date)
 
-            wind_dir = sit["ทิศลม"]
+st.header("สถานการณ์")
+situation = {k: st.selectbox(k, v, key=k) for k, v in situation_options.items()}
 
-            row = {"Date": date.strftime("%Y-%m-%d"), "Time": time_str}
+results = []
+for hour in range(24):
+    ref_row = meteo_data.iloc[hour] if hour < len(meteo_data) else None
+    wind_dir = int(ref_row["wdir"]) if ref_row is not None and not np.isnan(ref_row["wdir"]) else 90
 
-            ref_WS = ref_row["wspd"] if ref_row is not None else None
-            ref_WD = ref_row["wdir"] if ref_row is not None else None
-            ref_Temp = ref_row["temp"] if ref_row is not None else None
-            ref_RH = ref_row["rhum"] if ref_row is not None else None
+    data_point = {
+        "Hour": f"{hour:02d}:00",
+        "NO": simulate("NO", situation, hour, wind_dir, None),
+        "NO2": simulate("NO2", situation, hour, wind_dir, None),
+        "SO2": simulate("SO2", situation, hour, wind_dir, None),
+        "CO": simulate("CO", situation, hour, wind_dir, None),
+        "O3": simulate("O3", situation, hour, wind_dir, None),
+        "WS": simulate("WS", situation, hour, wind_dir, ref_row["wspd"] if ref_row is not None else None),
+        "WD": wind_dir,
+        "Temp": simulate("Temp", situation, hour, wind_dir, ref_row["temp"] if ref_row is not None else None),
+        "RH": simulate("RH", situation, hour, wind_dir, ref_row["rhum"] if ref_row is not None else None),
+    }
+    results.append(data_point)
 
-            no = simulate("NO", sit, hour, wind_dir, None) if "NO" in params else None
-            no2 = simulate("NO2", sit, hour, wind_dir, None) if "NO2" in params else None
-            row["NO"], row["NO2"] = no, no2
-            row["NOx"] = no + no2 if "NOx" in params and no and no2 else None
+df = pd.DataFrame(results)
+st.dataframe(df)
 
-            for var in ["WS", "WD", "Temp", "RH", "Pressure", "SO2", "CO", "O3"]:
-                if var in params:
-                    if var == "WS":
-                        ref = ref_WS
-                    elif var == "WD":
-                        ref = ref_WD
-                    elif var == "Temp":
-                        ref = ref_Temp
-                    elif var == "RH":
-                        ref = ref_RH
-                    else:
-                        ref = None
-                    row[var] = simulate(var, sit, hour, wind_dir, ref)
-
-            records.append(row)
-
-    df = pd.DataFrame(records)
-    st.success("✅ สร้างข้อมูลสำเร็จแล้ว")
-    st.dataframe(df.head(48))
-
-    # เตรียม DataFrame สำหรับ Excel export
-    df_env = df[[c for c in ["Date", "Time", "WS", "WD", "Temp", "RH", "Pressure"] if c in df.columns]]
-    df_nox = df[["Date", "Time", "NO", "NO2", "NOx"]] if "NO" in df.columns else pd.DataFrame()
-
-    # แปลงข้อมูล Reference Data ให้อยู่ในรูป Excel sheet
-    df_ref = hourly_data.reset_index()[["time", "wspd", "wdir", "temp", "rhum"]]
-    df_ref.rename(columns={
-        "time": "DateTime",
-        "wspd": "WS (m/s)",
-        "wdir": "WD (degree)",
-        "temp": "Temperature (°C)",
-        "rhum": "Relative Humidity (%)"
-    }, inplace=True)
-
+# Export to Excel
+def to_excel(df1, df2):
+    from io import BytesIO
     output = BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        if not df_nox.empty:
-            df_nox.to_excel(writer, index=False, sheet_name="NOx Group")
-        if not df_env.empty:
-            df_env.to_excel(writer, index=False, sheet_name="ENV")
-        for p in ["SO2", "CO", "O3"]:
-            if p in df.columns:
-                df[["Date", "Time", p]].to_excel(writer, index=False, sheet_name=p)
+    writer = pd.ExcelWriter(output, engine='openpyxl')
+    df1.to_excel(writer, index=False, sheet_name='Simulated')
+    df2.to_excel(writer, index=False, sheet_name='Reference')
+    writer.save()
+    return output.getvalue()
 
-        # เพิ่ม sheet สำหรับ Reference Data
-        df_ref.to_excel(writer, index=False, sheet_name="Reference Data")
+ref_df = meteo_data.reset_index()[["time", "temp", "rhum", "wspd", "wdir"]].rename(
+    columns={"time": "Time", "temp": "Temp", "rhum": "RH", "wspd": "WS", "wdir": "WD"}
+)
+excel = to_excel(df, ref_df)
 
-    file_name = f"AirCheckTH_{province}_{start_date.strftime('%Y%m%d')}.xlsx"
-    st.download_button("📥 ดาวน์โหลดไฟล์ Excel", output.getvalue(), file_name=file_name)
+st.download_button("📥 ดาวน์โหลดผลลัพธ์ (Excel)", data=excel, file_name="air_quality_simulation.xlsx")
