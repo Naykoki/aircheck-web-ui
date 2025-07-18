@@ -108,6 +108,7 @@ hourly_data = get_hourly_meteostat(province, start_date, num_days)
 
 # ---------------- การจำลอง ----------------
 def simulate(var, sit, hour, wind_dir, ref):
+    scale_factor_ws = 0.75  # ลดทอน WS เหลือ 75% ของค่าที่จำลองได้
     base = ref if ref is not None else (random.uniform(2, 6) if var not in ["Temp", "RH", "WS"] else 27)
     multiplier = 1.0
     add = 0.0
@@ -150,10 +151,9 @@ def simulate(var, sit, hour, wind_dir, ref):
     if var == "NOx":
         return None
     if var == "WS":
-        # ไม่จำกัด max 4 เพื่อให้ขยับได้จริง
-        return round(base + add + random.uniform(-1.0, 1.5), 2)
+        val = base + add + random.uniform(-1.0, 1.5)
+        return round(val * scale_factor_ws, 2)
     if var == "WD":
-        # คืนค่าองศาตามอ้างอิงเลย
         return ref if ref is not None else 90
     if var == "Temp":
         return round(base + add + random.uniform(-2, 2), 2)
