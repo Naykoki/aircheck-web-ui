@@ -1,221 +1,166 @@
-# streamlit_app.py
-
+# AirCheckTH_Web UI - Final Cloud Version (OpenWeather + Air4Thai + Login + Logo)
 import streamlit as st
 import pandas as pd
 import requests
-from datetime import datetime, timedelta
 import random
+from datetime import datetime, timedelta
 from io import BytesIO
 import os
 
-# ---------------------- CONFIG ----------------------
-st.set_page_config(page_title="AirCheck TH - Web", layout="wide", page_icon="logo.ico")
+# ------------------ PAGE CONFIG ------------------
+st.set_page_config(page_title="AirCheck TH", layout="wide", page_icon="logo.ico")
 
-# ---------------------- SHOW LOGO ----------------------
-st.image("logo.ico", width=80)
-st.title("AirCheck TH - Web Version")
+# ------------------ LOGO ------------------
+st.image("logo.ico", width=100)
 
-# ---------------------- Login System ----------------------
+# ------------------ LOGIN SYSTEM ------------------
 if "username" not in st.session_state:
     st.session_state.username = ""
     st.session_state.role = ""
 
-with st.sidebar:
-    if st.session_state.username == "":
-        st.subheader("🔐 เข้าสู่ระบบ")
-        username = st.text_input("ชื่อผู้ใช้")
-        if st.button("เข้าสู่ระบบ"):
-            if username.strip() == "":
-                st.warning("กรุณากรอกชื่อผู้ใช้")
-            else:
-                st.session_state.username = username
-                st.session_state.role = "admin" if username.lower() == "siwanon" else "user"
-                log = {
-                    "user": username,
-                    "role": st.session_state.role,
-                    "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                }
-                if os.path.exists("user_log.csv"):
-                    df = pd.read_csv("user_log.csv")
-                    df = pd.concat([df, pd.DataFrame([log])], ignore_index=True)
-                else:
-                    df = pd.DataFrame([log])
-                df.to_csv("user_log.csv", index=False)
-                st.experimental_rerun()
-    else:
-        st.success(f"👋 ยินดีต้อนรับ {st.session_state.username} ({st.session_state.role})")
-        if st.button("ออกจากระบบ"):
-            st.session_state.username = ""
-            st.session_state.role = ""
-            st.experimental_rerun()
+if st.session_state.username == "":
+    st.title("🔐 เข้าสู่ระบบ")
+    username = st.text_input("ชื่อผู้ใช้งาน")
+    if st.button("เข้าสู่ระบบ"):
+        st.session_state.username = username
+        st.session_state.role = "admin" if username.lower() == "siwanon" else "user"
+        st.experimental_rerun()
+    st.stop()
 
-# ---------------------- SHOW LOG (admin only) ----------------------
+# ------------------ USER STATUS ------------------
+st.sidebar.success(f"👋 ยินดีต้อนรับ {st.session_state.username} ({st.session_state.role})")
+
+# ------------------ LOG ACCESS ------------------
 if st.session_state.role == "admin":
-    with st.expander("📋 ประวัติการใช้งาน"):
-        try:
-            log_df = pd.read_csv("user_log.csv")
-            st.dataframe(log_df.tail(100))
-        except:
-            st.info("ไม่มี log หรือโหลดไม่ได้")
+    log_file = "user_log.csv"
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log = pd.DataFrame([{"time": now, "user": st.session_state.username}])
+    if os.path.exists(log_file):
+        old = pd.read_csv(log_file)
+        log = pd.concat([old, log], ignore_index=True)
+    log.to_csv(log_file, index=False)
 
-# ---------------------- API: OpenWeather ----------------------
-def get_openweather_data(city="Bangkok"):
-    api_key = "YOUR_API_KEY"  # 👈 แทนที่ด้วย API KEY จริงของคุณ
-    url = f"http://api.openweathermap.org/data/2.5/weather?q={city},TH&appid={api_key}&units=metric"
-    try:
-        r = requests.get(url).json()
+    with st.expander("📋 ประวัติการเข้าใช้งาน"):
+        st.dataframe(log.tail(50))
+
+# ------------------ API CONFIG ------------------
+OW_API_KEY = "83381fd2dfb9760f22710f0a419897c0"
+province_list = ["ระยอง", "กรุงเทพมหานคร", "พระนครศรีอยุธยา", "สระบุรี", "ราชบุรี", "ชลบุรี", "จันทบุรี"]
+selected_province = st.selectbox("เลือกจังหวัดเพื่อดึงข้อมูล", province_list)
+
+# ------------------ API FUNCTIONS ------------------
+@st.cache_data(ttl=3600)
+def get_openweather(city="Bangkok"):
+    url = f"https://api.openweathermap.org/data/2.5/weather?q={city}&appid={OW_API_KEY}&units=metric"
+    r = requests.get(url)
+    if r.status_code == 200:
+        data = r.json()
         return {
-            "Temp": r["main"]["temp"],
-            "RH": r["main"]["humidity"],
-            "WS": r["wind"]["speed"]
+            "Temp": data["main"]["temp"],
+            "RH": data["main"]["humidity"],
+            "WS": data["wind"]["speed"]
         }
-    except:
-        return {"Temp": 27.0, "RH": 65.0, "WS": 2.5}
+    return {}
 
-# ---------------------- API: Air4Thai ----------------------
-def get_air4thai_data(province):
-    try:
-        r = requests.get("https://data.air4thai.net/api/PCD/StationToday.json").json()
-        stations = [s for s in r["stations"] if s["provinceTH"] == province]
-        for s in stations:
-            latest = s.get("LastUpdate")
-            data = s.get("PM25")
-            if data:  # มีข้อมูล
-                return {
-                    "PM25": float(data),
-                    "source": s["stationNameTH"]
-                }
-        return {"PM25": None, "source": None}
-    except:
-        return {"PM25": None, "source": None}
+@st.cache_data(ttl=3600)
+def get_air4thai(province="ระยอง"):
+    url = f"http://air4thai.pcd.go.th/webV2/history/api/data.php?province={province}&station=all"
+    r = requests.get(url)
+    if r.status_code == 200:
+        data = r.json()
+        return data
+    return {}
 
-# ---------------------- INPUT ----------------------
-st.markdown("## 📌 ตั้งค่าการจำลอง")
+ref_open = get_openweather(selected_province)
+ref_open = ref_open if ref_open else {"Temp": 27, "RH": 65, "WS": 2.5}
 
+# ------------------ UI INPUT ------------------
+st.title("AirCheck TH - Web Version")
 col1, col2 = st.columns(2)
 with col1:
     start_date = st.date_input("วันที่เริ่มต้น", datetime.today())
-    num_days = st.slider("จำนวนวัน (1–8)", 1, 8, 3)
-    factory_dir = st.selectbox("ทิศทางโรงงาน", ["NE", "NW", "SE", "SW"])
-    city = st.selectbox("จังหวัด", ["กรุงเทพฯ", "ระยอง", "อยุธยา", "สระบุรี", "ราชบุรี", "ชลบุรี", "จันทบุรี"])
+    num_days = st.slider("จำนวนวัน (1-8)", 1, 8, 3)
+    factory_direction = st.selectbox("ทิศทางโรงงาน", ["NE", "NW", "SE", "SW"])
 with col2:
-    st.markdown("### สภาพแวดล้อม")
     near_road = st.checkbox("ใกล้ถนน")
     near_factory = st.checkbox("ใกล้โรงงาน")
-    params = st.multiselect("พารามิเตอร์ที่ต้องคำนวณ", [
-        "NO", "NO2", "NOx", "SO2", "CO", "O3", "WS", "WD", "Temp", "RH", "Pressure"
-    ], default=["NO", "NO2", "NOx", "Temp", "RH", "WS", "Pressure"])
 
-# ---------------------- สถานการณ์ ----------------------
-situation_opts = {
+params_to_calculate = st.multiselect("เลือกพารามิเตอร์", [
+    "NO", "NO2", "NOx", "SO2", "CO", "O3", "WS", "WD", "Temp", "RH", "Pressure"
+], default=["NO", "NO2", "NOx", "WS", "WD", "Temp", "RH", "Pressure"])
+
+sit_options = {
     "แดด": ["ไม่มี", "แดดอ่อน", "แดดแรง"],
     "ลม": ["ไม่มี", "นิ่ง/ไม่มีลม", "เบา", "ปานกลาง", "แรง"],
-    "ฝน": ["ไม่มี", "ตกเล็กน้อย", "ตกปานกลาง", "ตกหนัก"],
     "กลิ่น": ["ไม่มี", "มีกลิ่น"],
-    "อื่นๆ": ["ไม่มี", "รถเยอะ", "มีการเผาขยะ"]
+    "อุณหภูมิ": ["ไม่มี", "หนาว", "เย็น", "ปกติ", "ร้อน", "ร้อนจัด"],
+    "ท้องฟ้า": ["ไม่มี", "แจ่มใส", "มีเมฆ", "เมฆมาก"],
+    "ฝน": ["ไม่มี", "ตกเล็กน้อย", "ตกปานกลาง", "ตกหนัก"],
+    "อื่นๆ": ["ไม่มี", "รถเยอะ", "เผาขยะ"]
 }
 
-st.markdown("## ☁️ สถานการณ์รายวัน")
-daily_sits = []
+st.markdown("### สถานการณ์รายวัน")
+day_situations = []
 for i in range(num_days):
     with st.expander(f"วันที่ {i+1}"):
-        d = {}
-        d["WD"] = st.selectbox(f"ทิศลม (วัน {i+1})", ["NE", "NW", "SE", "SW"], key=f"wd_{i}")
-        for k, v in situation_opts.items():
-            d[k] = st.selectbox(f"{k} (วัน {i+1})", v, key=f"{k}_{i}")
-        daily_sits.append(d)
+        sit = {}
+        wind = st.selectbox(f"ทิศลม (วันที่ {i+1})", ["NE", "NW", "SE", "SW"], key=f"wind_{i}")
+        sit["ทิศลม"] = wind
+        for key, options in sit_options.items():
+            sit[key] = st.selectbox(f"{key} (วันที่ {i+1})", options, key=f"{key}_{i}")
+        day_situations.append(sit)
 
-# ---------------------- SIMULATE ----------------------
-ow_data = get_openweather_data(city)
-air_data = get_air4thai_data(city)
-ref_temp = ow_data["Temp"]
-ref_rh = ow_data["RH"]
-ref_ws = ow_data["WS"]
-
-def simulate(var, sit, hour, wd):
+# ------------------ SIMULATION ------------------
+def simulate(var, sit, wind, factory):
     base = random.uniform(2, 6)
-    mul = 1.0
+    multi = 1.0
     add = 0.0
 
-    if sit["ฝน"] == "ตกหนัก":
-        mul *= 0.6
-    elif sit["ฝน"] == "ตกปานกลาง":
-        mul *= 0.75
-    elif sit["ฝน"] == "ตกเล็กน้อย":
-        mul *= 0.9
+    if sit["ฝน"] in ["ตกปานกลาง", "ตกหนัก"]: multi *= 0.6; add -= 1
+    if sit["แดด"] == "แดดแรง": add += 3; multi *= 1.1
+    if sit["ลม"] == "แรง": add += 2 if var == "WS" else 0; multi *= 0.8
+    if sit["กลิ่น"] == "มีกลิ่น" and var in ["NO2", "CO", "SO2"]: multi *= 1.2
+    if sit["อื่นๆ"] == "รถเยอะ" and var in ["NO", "NO2", "CO"]: multi *= 1.4
+    if near_road and var in ["NO", "NO2", "CO"]: multi *= 1.2
+    if near_factory and wind == factory and var in ["SO2", "NO2"]: multi *= 1.4
 
-    if sit["แดด"] == "แดดแรง":
-        add += 3
-    elif sit["แดด"] == "แดดอ่อน":
-        add += 1.5
+    if var == "NO": return round(base * multi + add + random.uniform(0.5, 2), 2)
+    if var == "NO2": return round(min(20, base * multi + add + random.uniform(0.8, 2.5)), 2)
+    if var == "NOx": return None
+    if var == "Temp": return round(ref_open["Temp"] + add + random.uniform(-2, 2), 2)
+    if var == "RH": return round(ref_open["RH"] + add + random.uniform(-10, 10), 2)
+    if var == "WS": return round(min(4, ref_open["WS"] + add + random.uniform(-1, 1)), 2)
+    if var == "Pressure": return round(1010 + random.uniform(-5, 5), 2)
+    if var == "SO2": return round(base * multi + random.uniform(0.5, 1.5), 2)
+    if var == "CO": return round(base * multi + random.uniform(0.1, 0.5), 2)
+    if var == "O3": return round(30 + add + random.uniform(5, 15), 2)
+    return base
 
-    if sit["ลม"] == "แรง" and var == "WS":
-        add += 2
-    elif sit["ลม"] == "ปานกลาง" and var == "WS":
-        add += 1
-
-    if sit["กลิ่น"] == "มีกลิ่น" and var in ["NO2", "SO2", "CO"]:
-        mul *= 1.2
-
-    if sit["อื่นๆ"] == "รถเยอะ" and var in ["NO", "NO2", "CO"]:
-        mul *= 1.4
-
-    if sit["อื่นๆ"] == "มีการเผาขยะ" and var in ["CO", "SO2", "O3"]:
-        mul *= 1.3
-
-    if near_road and var in ["NO", "NO2", "CO"]:
-        mul *= 1.3
-    if near_factory and wd == factory_dir and var in ["NO2", "SO2"]:
-        mul *= 1.5
-
-    if var == "NO":
-        return round(base * mul + add + random.uniform(0.5, 2), 2)
-    if var == "NO2":
-        return round(min(20, base * mul + add + random.uniform(1, 3)), 2)
-    if var == "NOx":
-        return None
-    if var == "Temp":
-        return round(ref_temp + add + random.uniform(-2, 2), 2)
-    if var == "RH":
-        return round(ref_rh + add + random.uniform(-10, 10), 2)
-    if var == "WS":
-        return round(min(4, ref_ws + add + random.uniform(-1, 1)), 2)
-    if var == "Pressure":
-        return round(1010 + random.uniform(-5, 5), 2)
-    if var == "SO2":
-        return round(base * mul + add + random.uniform(0.3, 1.5), 2)
-    if var == "CO":
-        return round(base * mul + add + random.uniform(0.1, 1.0), 2)
-    if var == "O3":
-        return round(30 + add + random.uniform(5, 25), 2)
-
-# ---------------------- GENERATE ----------------------
+# ------------------ GENERATE ------------------
 if st.button("สร้างข้อมูลและดาวน์โหลด Excel"):
     rows = []
     for i in range(num_days):
         date = start_date + timedelta(days=i)
-        sit = daily_sits[i]
-        wd = sit["WD"]
+        sit = day_situations[i]
+        wind = sit["ทิศลม"]
         for h in range(24):
-            row = {"Date": date.strftime("%Y-%m-%d"), "Hour": f"{h:02d}:00"}
-            no = simulate("NO", sit, h, wd) if "NO" in params else None
-            no2 = simulate("NO2", sit, h, wd) if "NO2" in params else None
-            row.update({
-                "NO": no,
-                "NO2": no2,
-                "NOx": no + no2 if (no and no2 and "NOx" in params) else None,
-                "WD": wd
-            })
+            row = {"Date": date.strftime("%Y-%m-%d"), "Hour": f"{h:02d}:00", "WD": wind}
+            no = simulate("NO", sit, wind, factory_direction) if "NO" in params_to_calculate else None
+            no2 = simulate("NO2", sit, wind, factory_direction) if "NO2" in params_to_calculate else None
+            nox = no + no2 if (no and no2 and "NOx" in params_to_calculate) else None
+            row["NO"], row["NO2"], row["NOx"] = no, no2, nox
             for p in ["Temp", "RH", "WS", "Pressure", "SO2", "CO", "O3"]:
-                if p in params:
-                    row[p] = simulate(p, sit, h, wd)
+                if p in params_to_calculate:
+                    row[p] = simulate(p, sit, wind, factory_direction)
             rows.append(row)
 
     df = pd.DataFrame(rows)
+    st.success("✅ สร้างข้อมูลสำเร็จแล้ว")
     st.dataframe(df.head(50))
+
     output = BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="AirCheckData")
+        df.to_excel(writer, index=False, sheet_name="AirCheck Data")
 
-    fname = f"AirCheck_{start_date.strftime('%Y%m%d')}_{(start_date + timedelta(days=num_days-1)).strftime('%Y%m%d')}.xlsx"
-    st.download_button("📥 ดาวน์โหลดไฟล์ Excel", data=output.getvalue(), file_name=fname)
+    fname = f"AirCheck_{start_date.strftime('%Y%m%d')}_{(start_date + timedelta(days=num_days - 1)).strftime('%Y%m%d')}.xlsx"
+    st.download_button("📥 ดาวน์โหลด Excel", data=output.getvalue(), file_name=fname)
