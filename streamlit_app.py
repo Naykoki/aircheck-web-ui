@@ -24,7 +24,7 @@ with st.sidebar:
             st.stop()
         st.session_state.user = username
         st.session_state.role = "admin" if username.lower() == "siwanon" else "user"
-        st.experimental_rerun()
+        st.rerun()  # ✅ ใช้ st.rerun() แทน experimental
 
 if not st.session_state.user:
     st.stop()
@@ -46,11 +46,12 @@ def get_openweather(province):
             st.warning("⚠️ ไม่สามารถเชื่อมต่อ OpenWeather ได้ ใช้ค่าจำลองแทน")
             return {"WS": 2.5, "WD": 90, "Temp": 27.0, "RH": 65.0}
         data = res.json()
-        ws = data["wind"]["speed"]
-        wd = data["wind"].get("deg", 0)
-        temp = data["main"]["temp"]
-        rh = data["main"]["humidity"]
-        return {"WS": ws, "WD": wd, "Temp": temp, "RH": rh}
+        return {
+            "WS": data["wind"]["speed"],
+            "WD": data["wind"].get("deg", 0),
+            "Temp": data["main"]["temp"],
+            "RH": data["main"]["humidity"]
+        }
     except Exception as e:
         st.warning(f"⚠️ Error: {e}")
         return {"WS": 2.5, "WD": 90, "Temp": 27.0, "RH": 65.0}
