@@ -24,9 +24,7 @@ with st.sidebar:
         st.stop()
     st.session_state.user = username
     st.session_state.role = "admin" if username.lower() == "siwanon" else "user"
-    st.rerun()
-
-
+    st.experimental_rerun()
 if not st.session_state.user:
     st.stop()
 
