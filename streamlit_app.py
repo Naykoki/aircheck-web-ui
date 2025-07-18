@@ -1,9 +1,9 @@
 import streamlit as st
 import pandas as pd
 import random
-import requests
 from datetime import datetime, timedelta
 from io import BytesIO
+from meteostat import Point, Daily
 
 # ---------------- CONFIG ----------------
 st.set_page_config(page_title="AirCheck TH", layout="wide")
@@ -24,42 +24,52 @@ with st.sidebar:
             st.stop()
         st.session_state.user = username
         st.session_state.role = "admin" if username.lower() == "siwanon" else "user"
-        st.rerun()  # ✅ ใช้ st.rerun() แทน experimental
+        st.experimental_rerun()
 
 if not st.session_state.user:
     st.stop()
 
-# ---------------- Header ----------------
 st.sidebar.success(f"ยินดีต้อนรับ: {st.session_state.user} ({st.session_state.role})")
 
-# ---------------- Province + API ----------------
+# ---------------- Province ----------------
 province = st.selectbox("📍 จังหวัดที่ต้องการดึงข้อมูลอ้างอิง", [
     "กรุงเทพมหานคร", "ระยอง", "อยุธยา", "สระบุรี", "ราชบุรี", "ชลบุรี", "จันทบุรี"
 ])
 
-def get_openweather(province):
-    try:
-        api_key = st.secrets["OPENWEATHER_API"]
-        url = f"https://api.openweathermap.org/data/2.5/weather?q={province},TH&appid={api_key}&units=metric"
-        res = requests.get(url)
-        if res.status_code != 200:
-            st.warning("⚠️ ไม่สามารถเชื่อมต่อ OpenWeather ได้ ใช้ค่าจำลองแทน")
-            return {"WS": 2.5, "WD": 90, "Temp": 27.0, "RH": 65.0}
-        data = res.json()
-        return {
-            "WS": data["wind"]["speed"],
-            "WD": data["wind"].get("deg", 0),
-            "Temp": data["main"]["temp"],
-            "RH": data["main"]["humidity"]
-        }
-    except Exception as e:
-        st.warning(f"⚠️ Error: {e}")
+# ---------------- Meteostat API ----------------
+province_coords = {
+    "กรุงเทพมหานคร": (13.7563, 100.5018),
+    "ระยอง": (12.6814, 101.2770),
+    "อยุธยา": (14.3532, 100.5689),
+    "สระบุรี": (14.5289, 100.9105),
+    "ราชบุรี": (13.5360, 99.8171),
+    "ชลบุรี": (13.3611, 100.9847),
+    "จันทบุรี": (12.6112, 102.1035)
+}
+
+def get_meteostat(province):
+    lat, lon = province_coords.get(province, (13.7563, 100.5018))
+    location = Point(lat, lon)
+
+    today = datetime.now()
+    yesterday = today - timedelta(days=1)
+    data = Daily(location, yesterday, yesterday)
+    data = data.fetch()
+
+    if not data.empty:
+        row = data.iloc[0]
+        ws = row["wspd"] or 2.5
+        wd = row["wdir"] or 90
+        temp = row["tavg"] or 27
+        rh = row["rhum"] or 65
+        return {"WS": round(ws, 2), "WD": round(wd, 2), "Temp": round(temp, 2), "RH": round(rh, 2)}
+    else:
         return {"WS": 2.5, "WD": 90, "Temp": 27.0, "RH": 65.0}
 
-ref_data = get_openweather(province)
-st.info(f"📡 อ้างอิงข้อมูลจาก OpenWeather: Temp={ref_data['Temp']}°C, RH={ref_data['RH']}%, WS={ref_data['WS']} m/s")
+ref_data = get_meteostat(province)
+st.info(f"📡 อ้างอิงข้อมูลจาก Meteostat: Temp={ref_data['Temp']}°C, RH={ref_data['RH']}%, WS={ref_data['WS']} m/s")
 
-# ---------------- INPUTS ----------------
+# ---------------- INPUT ----------------
 col1, col2 = st.columns(2)
 with col1:
     start_date = st.date_input("📆 วันที่เริ่มต้น", datetime.today())
@@ -98,7 +108,7 @@ for i in range(num_days):
 # ---------------- SIMULATE ----------------
 def simulate(var, sit, hour, wind_dir):
     ref = ref_data.get(var, 0)
-    base = ref if ref else random.uniform(2, 6)
+    base = ref if var in ["Temp", "RH", "WS"] else random.uniform(2, 6)
     multiplier = 1.0
     add = 0.0
 
@@ -141,12 +151,8 @@ if st.button("📊 สร้างข้อมูลและดาวน์โ�
             row = {"Date": date.strftime("%Y-%m-%d"), "Time": time_str}
             no = simulate("NO", sit, hour, wind_dir) if "NO" in params else None
             no2 = simulate("NO2", sit, hour, wind_dir) if "NO2" in params else None
-            row["NO"] = no
-            row["NO2"] = no2
-            if "NOx" in params and no is not None and no2 is not None:
-                row["NOx"] = round(no + no2, 2)
-            else:
-                row["NOx"] = None
+            row["NO"], row["NO2"] = no, no2
+            row["NOx"] = no + no2 if "NOx" in params and no and no2 else None
             for var in ["WS", "WD", "Temp", "RH", "Pressure", "SO2", "CO", "O3"]:
                 if var in params:
                     row[var] = simulate(var, sit, hour, wind_dir)
@@ -156,7 +162,6 @@ if st.button("📊 สร้างข้อมูลและดาวน์โ�
     st.success("✅ สร้างข้อมูลสำเร็จแล้ว")
     st.dataframe(df.head(48))
 
-    # ---------------- EXCEL EXPORT ----------------
     df_env = df[[c for c in ["Date", "Time", "WS", "WD", "Temp", "RH", "Pressure"] if c in df.columns]]
     df_nox = df[["Date", "Time", "NO", "NO2", "NOx"]] if "NO" in df.columns else pd.DataFrame()
     output = BytesIO()
@@ -169,6 +174,5 @@ if st.button("📊 สร้างข้อมูลและดาวน์โ�
             if p in df.columns:
                 df[["Date", "Time", p]].to_excel(writer, index=False, sheet_name=p)
 
-    output.seek(0)
     file_name = f"AirCheckTH_{province}_{start_date.strftime('%Y%m%d')}.xlsx"
     st.download_button("📥 ดาวน์โหลดไฟล์ Excel", output.getvalue(), file_name=file_name)
