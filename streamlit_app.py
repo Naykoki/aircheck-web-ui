@@ -38,16 +38,21 @@ province = st.selectbox("📍 จังหวัดที่ต้องกา�
 ])
 
 def get_openweather(province):
-    api_key = st.secrets["OPENWEATHER_API"]
-    url = f"https://api.openweathermap.org/data/2.5/weather?q={province},TH&appid={api_key}&units=metric"
     try:
-        res = requests.get(url).json()
-        ws = res["wind"]["speed"]
-        wd = res["wind"].get("deg", 0)
-        temp = res["main"]["temp"]
-        rh = res["main"]["humidity"]
+        api_key = st.secrets["OPENWEATHER_API"]
+        url = f"https://api.openweathermap.org/data/2.5/weather?q={province},TH&appid={api_key}&units=metric"
+        res = requests.get(url)
+        if res.status_code != 200:
+            st.warning("⚠️ ไม่สามารถเชื่อมต่อ OpenWeather ได้ ใช้ค่าจำลองแทน")
+            return {"WS": 2.5, "WD": 90, "Temp": 27.0, "RH": 65.0}
+        data = res.json()
+        ws = data["wind"]["speed"]
+        wd = data["wind"].get("deg", 0)
+        temp = data["main"]["temp"]
+        rh = data["main"]["humidity"]
         return {"WS": ws, "WD": wd, "Temp": temp, "RH": rh}
-    except:
+    except Exception as e:
+        st.warning(f"⚠️ Error: {e}")
         return {"WS": 2.5, "WD": 90, "Temp": 27.0, "RH": 65.0}
 
 ref_data = get_openweather(province)
@@ -92,7 +97,7 @@ for i in range(num_days):
 # ---------------- SIMULATE ----------------
 def simulate(var, sit, hour, wind_dir):
     ref = ref_data.get(var, 0)
-    base = ref if var in ["Temp", "RH", "WS"] else random.uniform(2, 6)
+    base = ref if ref else random.uniform(2, 6)
     multiplier = 1.0
     add = 0.0
 
@@ -135,8 +140,12 @@ if st.button("📊 สร้างข้อมูลและดาวน์โ�
             row = {"Date": date.strftime("%Y-%m-%d"), "Time": time_str}
             no = simulate("NO", sit, hour, wind_dir) if "NO" in params else None
             no2 = simulate("NO2", sit, hour, wind_dir) if "NO2" in params else None
-            row["NO"], row["NO2"] = no, no2
-            row["NOx"] = no + no2 if "NOx" in params and no and no2 else None
+            row["NO"] = no
+            row["NO2"] = no2
+            if "NOx" in params and no is not None and no2 is not None:
+                row["NOx"] = round(no + no2, 2)
+            else:
+                row["NOx"] = None
             for var in ["WS", "WD", "Temp", "RH", "Pressure", "SO2", "CO", "O3"]:
                 if var in params:
                     row[var] = simulate(var, sit, hour, wind_dir)
@@ -159,5 +168,6 @@ if st.button("📊 สร้างข้อมูลและดาวน์โ�
             if p in df.columns:
                 df[["Date", "Time", p]].to_excel(writer, index=False, sheet_name=p)
 
+    output.seek(0)
     file_name = f"AirCheckTH_{province}_{start_date.strftime('%Y%m%d')}.xlsx"
     st.download_button("📥 ดาวน์โหลดไฟล์ Excel", output.getvalue(), file_name=file_name)
