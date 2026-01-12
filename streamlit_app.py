@@ -6,13 +6,12 @@ from datetime import datetime, timedelta
 from io import BytesIO
 
 st.set_page_config(page_title="AirCheck TH", layout="wide")
-st.title("🌍 AirCheck TH (Simulation – Cloud Safe)")
+st.title("🌍 AirCheck TH – Simulation (อ้างอิง + สถานการณ์)")
 
-# ---------- INPUT ----------
-province = st.selectbox(
-    "จังหวัด",
-    ["กรุงเทพมหานคร", "ระยอง", "อยุธยา", "สระบุรี", "ราชบุรี", "ชลบุรี", "จันทบุรี"]
-)
+# ---------------- PROVINCE ----------------
+province = st.selectbox("จังหวัด", [
+    "กรุงเทพมหานคร", "ระยอง", "อยุธยา", "สระบุรี", "ราชบุรี", "ชลบุรี", "จันทบุรี"
+])
 
 coords = {
     "กรุงเทพมหานคร": (13.7563, 100.5018),
@@ -25,8 +24,9 @@ coords = {
 }
 lat, lon = coords[province]
 
-start_date = st.date_input("วันที่เริ่ม", datetime.now().date())
-num_days = st.slider("จำนวนวัน", 1, 7, 1)
+# ---------------- INPUT ----------------
+start_date = st.date_input("วันที่เริ่มต้น", datetime.now().date())
+num_days = st.slider("จำนวนวัน", 1, 8, 1)
 
 params = st.multiselect(
     "พารามิเตอร์",
@@ -34,19 +34,35 @@ params = st.multiselect(
     default=["NO", "NO2", "NOx", "WS", "Temp", "RH"]
 )
 
-# ---------- FETCH OPEN-METEO ----------
+# ---------------- DAILY SITUATION ----------------
+sit_options = {
+    "แดด": ["ไม่มี", "แดดอ่อน", "แดดแรง"],
+    "ลม": ["นิ่ง/ไม่มีลม", "เบา", "ปานกลาง", "แรง"],
+    "ฝน": ["ไม่มี", "ตกเล็กน้อย", "ตกปานกลาง", "ตกหนัก"],
+    "อื่นๆ": ["ไม่มี", "รถเยอะ", "มีการเผาขยะ"]
+}
+
+day_situations = []
+for i in range(num_days):
+    with st.expander(f"วันที่ {i+1}"):
+        sit = {}
+        sit["ทิศลม"] = st.selectbox("ทิศลม", ["NE", "NW", "SE", "SW"], key=f"wd{i}")
+        for k, v in sit_options.items():
+            sit[k] = st.selectbox(k, v, key=f"{k}{i}")
+        day_situations.append(sit)
+
+# ---------------- FETCH OPEN-METEO ----------------
 @st.cache_data(show_spinner=False)
-def fetch_weather_aq(lat, lon, start, days):
+def fetch_ref(lat, lon, start, days):
     sd = start.strftime("%Y-%m-%d")
     ed = (start + timedelta(days=days - 1)).strftime("%Y-%m-%d")
 
-    url = (
+    w_url = (
         f"https://api.open-meteo.com/v1/forecast"
         f"?latitude={lat}&longitude={lon}"
         f"&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m"
         f"&start_date={sd}&end_date={ed}&timezone=Asia/Bangkok"
     )
-    w = requests.get(url).json()["hourly"]
 
     aq_url = (
         f"https://air-quality-api.open-meteo.com/v1/air-quality"
@@ -54,45 +70,83 @@ def fetch_weather_aq(lat, lon, start, days):
         f"&hourly=carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone"
         f"&start_date={sd}&end_date={ed}&timezone=Asia/Bangkok"
     )
+
+    w = requests.get(w_url).json()["hourly"]
     aq = requests.get(aq_url).json()["hourly"]
 
-    df = pd.DataFrame({
+    return pd.DataFrame({
         "time": pd.to_datetime(w["time"]),
         "Temp": w["temperature_2m"],
         "RH": w["relative_humidity_2m"],
         "WS": w["wind_speed_10m"],
         "WD": w["wind_direction_10m"],
-        "CO": aq["carbon_monoxide"],
-        "NO2": aq["nitrogen_dioxide"],
-        "SO2": aq["sulphur_dioxide"],
-        "O3": aq["ozone"],
+        "NO2_ref": aq["nitrogen_dioxide"],
+        "SO2_ref": aq["sulphur_dioxide"],
+        "CO_ref": aq["carbon_monoxide"],
+        "O3_ref": aq["ozone"]
     })
-    return df
 
-df_ref = fetch_weather_aq(lat, lon, start_date, num_days)
+ref_df = fetch_ref(lat, lon, start_date, num_days)
 
-# ---------- SIMULATION ----------
-rows = []
-for _, r in df_ref.iterrows():
-    row = {
-        "DateTime": r["time"],
-        "Temp": r["Temp"],
-        "RH": r["RH"],
-        "WS": max(0.5, r["WS"] * random.uniform(0.7, 1.1)),
-        "WD": r["WD"],
-        "NO": random.uniform(5, 25),
-        "NO2": r["NO2"] * random.uniform(1.1, 1.4),
-        "CO": r["CO"] * random.uniform(1.05, 1.3),
-        "SO2": r["SO2"] * random.uniform(1.0, 1.2),
-        "O3": r["O3"] * random.uniform(0.9, 1.2),
-    }
-    row["NOx"] = row["NO"] + row["NO2"]
-    rows.append({k: row[k] for k in params if k in row})
+# ---------------- SIMULATION ----------------
+def simulate(var, sit, hour, ref):
+    mult = 1.0
 
-df = pd.DataFrame(rows)
-st.dataframe(df.head(48))
+    if sit["ฝน"] in ["ตกปานกลาง", "ตกหนัก"]:
+        mult *= 0.6
+    if sit["ลม"] == "นิ่ง/ไม่มีลม":
+        mult *= 1.3
+    if sit["อื่นๆ"] == "รถเยอะ" and var in ["NO", "NO2", "CO"]:
+        mult *= 1.4
+    if hour in range(7,10) or hour in range(16,20):
+        if var in ["NO", "NO2", "CO"]:
+            mult *= 1.3
 
-# ---------- EXPORT ----------
-buf = BytesIO()
-df.to_excel(buf, index=False)
-st.download_button("📥 ดาวน์โหลด Excel", buf.getvalue(), "AirCheckTH.xlsx")
+    if var == "NO":
+        return round(random.uniform(5, 20) * mult, 2)
+
+    if var in ["NO2", "SO2", "CO", "O3"]:
+        return round(ref * mult, 2)
+
+    if var == "WS":
+        return round(max(0.5, ref * random.uniform(0.7, 1.0)), 2)
+
+    if var == "Temp":
+        return round(ref + random.uniform(-2, 2), 2)
+
+    if var == "RH":
+        return round(min(100, ref + random.uniform(-8, 8)), 2)
+
+    if var == "WD":
+        return ref
+
+# ---------------- GENERATE ----------------
+if st.button("📊 สร้างข้อมูล"):
+    rows = []
+
+    for i in range(num_days):
+        sit = day_situations[i]
+        day = start_date + timedelta(days=i)
+
+        for h in range(24):
+            t = datetime.combine(day, datetime.min.time()) + timedelta(hours=h)
+            r = ref_df.loc[ref_df["time"] == t].iloc[0]
+
+            row = {"DateTime": t}
+            for p in params:
+                if p == "NOx":
+                    continue
+                ref = r.get(f"{p}_ref", r.get(p))
+                row[p] = simulate(p, sit, h, ref)
+
+            if "NOx" in params:
+                row["NOx"] = round(row.get("NO",0) + row.get("NO2",0), 2)
+
+            rows.append(row)
+
+    df = pd.DataFrame(rows)
+    st.dataframe(df.head(48))
+
+    buf = BytesIO()
+    df.to_excel(buf, index=False)
+    st.download_button("📥 ดาวน์โหลด Excel", buf.getvalue(), "AirCheckTH.xlsx")
