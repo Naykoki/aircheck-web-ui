@@ -1,5 +1,4 @@
 streamlit
 pandas
 requests
-meteostat==1.6.5
 openpyxl
