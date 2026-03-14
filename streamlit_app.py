@@ -10,8 +10,7 @@ from streamlit_folium import st_folium
 
 st.set_page_config(page_title="AirCheck TH", layout="wide")
 
-st.title("🌏 AirCheck TH")
-st.caption("Air Quality Simulation Platform")
+st.title("🌏 AirCheck TH – Air Quality Simulation Dashboard")
 
 # ---------------- จังหวัด ----------------
 
@@ -27,10 +26,10 @@ province_coords = {
 
 # ---------------- Sidebar ----------------
 
-st.sidebar.header("⚙ การตั้งค่า")
+st.sidebar.header("⚙ Simulation Settings")
 
 province = st.sidebar.selectbox(
-"เลือกจังหวัด",
+"จังหวัด",
 list(province_coords.keys())
 )
 
@@ -54,32 +53,32 @@ station_type = st.sidebar.selectbox(
 ["วัด","โรงเรียน","ชุมชน","โรงพยาบาล","อุตสาหกรรม"]
 )
 
-# ---------------- Autocomplete Search ----------------
+# ---------------- Search ----------------
 
 def search_places(query):
 
-    url = "https://photon.komoot.io/api/"
+    url="https://photon.komoot.io/api/"
 
-    params = {
+    params={
         "q": query + " " + province,
         "limit": 5
     }
 
     try:
 
-        res = requests.get(url, params=params, timeout=10).json()
+        res=requests.get(url,params=params,timeout=10).json()
 
-        results = []
+        results=[]
 
         for item in res["features"]:
 
-            name = item["properties"].get("name","")
-            city = item["properties"].get("city","")
+            name=item["properties"].get("name","")
+            city=item["properties"].get("city","")
 
-            lat = item["geometry"]["coordinates"][1]
-            lon = item["geometry"]["coordinates"][0]
+            lat=item["geometry"]["coordinates"][1]
+            lon=item["geometry"]["coordinates"][0]
 
-            label = f"{name} {city}"
+            label=f"{name} {city}"
 
             results.append({
                 "label":label,
@@ -90,45 +89,42 @@ def search_places(query):
         return results
 
     except:
-
         return []
-
-# ---------------- Search UI ----------------
 
 st.subheader("🔎 ค้นหาสถานที่")
 
-search_text = st.text_input("พิมพ์ชื่อสถานที่")
+search_text=st.text_input("พิมพ์ชื่อสถานที่")
 
-if len(search_text) >= 2:
+if len(search_text)>=2:
 
-    results = search_places(search_text)
+    results=search_places(search_text)
 
-    options = [r["label"] for r in results]
+    options=[r["label"] for r in results]
 
     if options:
 
-        choice = st.selectbox("เลือกสถานที่", options)
+        choice=st.selectbox("เลือกสถานที่",options)
 
-        col1,col2 = st.columns(2)
+        col1,col2=st.columns(2)
 
         with col1:
 
-            if st.button("📍 ตั้งเป็นจุดตรวจวัด"):
+            if st.button("📍 ตั้งเป็น Station"):
 
                 for r in results:
 
-                    if r["label"] == choice:
+                    if r["label"]==choice:
 
-                        st.session_state.station = (r["lat"],r["lon"])
+                        st.session_state.station=(r["lat"],r["lon"])
                         st.rerun()
 
         with col2:
 
-            if st.button("🏭 เพิ่มโรงงาน"):
+            if st.button("🏭 เพิ่ม Factory"):
 
                 for r in results:
 
-                    if r["label"] == choice:
+                    if r["label"]==choice:
 
                         if "factories" not in st.session_state:
                             st.session_state.factories=[]
@@ -139,15 +135,11 @@ if len(search_text) >= 2:
 # ---------------- Map ----------------
 
 if "station" in st.session_state:
-    map_center = st.session_state.station
+    map_center=st.session_state.station
 else:
-    map_center = [center_lat,center_lon]
+    map_center=[center_lat,center_lon]
 
-m = folium.Map(
-location=map_center,
-zoom_start=12,
-tiles="CartoDB positron"
-)
+m=folium.Map(location=map_center,zoom_start=12,tiles="CartoDB positron")
 
 if "station" in st.session_state:
 
@@ -167,55 +159,7 @@ if "factories" in st.session_state:
             icon=folium.Icon(color="red")
         ).add_to(m)
 
-map_data = st_folium(m,height=500,width=1200)
-
-# ---------------- click map ----------------
-
-if map_data["last_clicked"]:
-
-    lat = map_data["last_clicked"]["lat"]
-    lon = map_data["last_clicked"]["lng"]
-
-    if "station" not in st.session_state:
-        st.session_state.station=(lat,lon)
-
-    else:
-
-        if "factories" not in st.session_state:
-            st.session_state.factories=[]
-
-        st.session_state.factories.append((lat,lon))
-
-# ---------------- distance ----------------
-
-def distance_km(lat1,lon1,lat2,lon2):
-
-    R=6371
-
-    dlat=math.radians(lat2-lat1)
-    dlon=math.radians(lon2-lon1)
-
-    a=math.sin(dlat/2)**2+math.cos(math.radians(lat1))*math.cos(math.radians(lat2))*math.sin(dlon/2)**2
-
-    c=2*math.atan2(math.sqrt(a),math.sqrt(1-a))
-
-    return R*c
-
-station = st.session_state.get("station")
-factories = st.session_state.get("factories",[])
-
-if station and factories:
-
-    st.subheader("📏 ระยะโรงงาน")
-
-    for i,f in enumerate(factories):
-
-        dist = distance_km(
-            station[0],station[1],
-            f[0],f[1]
-        )
-
-        st.write(f"โรงงาน {i+1}: {dist:.2f} km")
+map_data=st_folium(m,height=450,width=1200)
 
 # ---------------- API ----------------
 
@@ -253,18 +197,19 @@ f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude
 # ---------------- Simulation ----------------
 
 def simulate(base):
-
     return base * random.uniform(0.8,1.3)
 
 # ---------------- Run ----------------
 
-if st.button("🚀 เริ่มจำลองข้อมูล"):
+if st.button("🚀 Run Simulation"):
+
+    station=st.session_state.get("station")
 
     if not station:
-        st.warning("กรุณาปักจุดตรวจวัดก่อน")
+        st.warning("กรุณาตั้ง Station ก่อน")
         st.stop()
 
-    ref_df = fetch_api(station[0],station[1],start_date,num_days)
+    ref_df=fetch_api(station[0],station[1],start_date,num_days)
 
     rows=[]
 
@@ -294,11 +239,20 @@ if st.button("🚀 เริ่มจำลองข้อมูล"):
 
     df=pd.DataFrame(rows)
 
-    st.subheader("📊 Dashboard")
+    # KPI
+
+    col1,col2,col3,col4=st.columns(4)
+
+    col1.metric("NO2 Avg",round(df["NO2"].mean(),2))
+    col2.metric("SO2 Avg",round(df["SO2"].mean(),2))
+    col3.metric("CO Avg",round(df["CO"].mean(),2))
+    col4.metric("O3 Avg",round(df["O3"].mean(),2))
+
+    st.subheader("📊 Pollution Dashboard")
 
     st.line_chart(df.set_index("Hour")[["NO2","SO2","CO","O3"]])
 
-    st.subheader("📄 ตารางข้อมูล")
+    st.subheader("📄 Data Table")
 
     st.dataframe(df)
 
@@ -311,7 +265,7 @@ if st.button("🚀 เริ่มจำลองข้อมูล"):
         ref_df.to_excel(writer,index=False,sheet_name="Reference Data")
 
     st.download_button(
-        "📥 ดาวน์โหลด Excel",
+        "📥 Download Excel",
         buf.getvalue(),
         file_name="AirCheckTH.xlsx"
     )
