@@ -8,10 +8,9 @@ from io import BytesIO
 import folium
 from streamlit_folium import st_folium
 
-st.set_page_config(page_title="AirCheck TH",layout="wide")
+st.set_page_config(page_title="AirCheck TH", layout="wide")
 
-st.title("🌏 AirCheck TH")
-st.caption("ระบบจำลองคุณภาพอากาศ")
+st.title("🌏 AirCheck TH – ระบบจำลองคุณภาพอากาศ")
 
 # ================= จังหวัด =================
 
@@ -30,21 +29,14 @@ province_coords = {
 st.sidebar.header("⚙ การตั้งค่า")
 
 province = st.sidebar.selectbox(
-"📍 จังหวัด",
+"📍 เลือกจังหวัด",
 list(province_coords.keys())
 )
 
 center_lat,center_lon = province_coords[province]
 
-start_date = st.sidebar.date_input(
-"📅 วันที่เริ่มต้น",
-datetime.now().date()
-)
-
-num_days = st.sidebar.slider(
-"จำนวนวัน",
-1,8,1
-)
+start_date = st.sidebar.date_input("📅 วันที่เริ่มต้น",datetime.now().date())
+num_days = st.sidebar.slider("จำนวนวัน",1,8,1)
 
 near_road = st.sidebar.checkbox("🚗 ใกล้ถนนใหญ่")
 near_factory = st.sidebar.checkbox("🏭 ใกล้โรงงาน")
@@ -66,13 +58,71 @@ pin_mode = st.sidebar.radio(
 ["ปักจุดตรวจวัด","ปักโรงงาน"]
 )
 
-# ================= MAP =================
+# ================= ค้นหาตำแหน่ง =================
+
+def search_location(query):
+
+    url="https://nominatim.openstreetmap.org/search"
+
+    params={
+        "q":query,
+        "format":"json",
+        "limit":1
+    }
+
+    headers={"User-Agent":"aircheck"}
+
+    res=requests.get(url,params=params,headers=headers).json()
+
+    if res:
+        lat=float(res[0]["lat"])
+        lon=float(res[0]["lon"])
+        return lat,lon
+
+    return None
+
+
+st.subheader("🔎 ค้นหาตำแหน่ง")
+
+col1,col2 = st.columns(2)
+
+with col1:
+
+    station_search = st.text_input("ค้นหาจุดตรวจวัด")
+
+    if st.button("ปักจุดตรวจวัด"):
+
+        loc = search_location(station_search)
+
+        if loc:
+            st.session_state.station = loc
+            st.rerun()
+
+with col2:
+
+    factory_search = st.text_input("ค้นหาโรงงาน")
+
+    if st.button("ปักโรงงาน"):
+
+        loc = search_location(factory_search)
+
+        if loc:
+            st.session_state.factory = loc
+            st.rerun()
+
+# ================= Map =================
+
+if "station" in st.session_state:
+    map_center = st.session_state.station
+else:
+    map_center = [center_lat,center_lon]
 
 st.subheader("🗺 แผนที่")
 
-m = folium.Map(location=[center_lat,center_lon],zoom_start=10)
+m = folium.Map(location=map_center, zoom_start=12)
 
 if "station" in st.session_state:
+
     folium.Marker(
         st.session_state.station,
         tooltip="จุดตรวจวัด",
@@ -80,6 +130,7 @@ if "station" in st.session_state:
     ).add_to(m)
 
 if "factory" in st.session_state:
+
     folium.Marker(
         st.session_state.factory,
         tooltip="โรงงาน",
@@ -102,59 +153,7 @@ if map_data["last_clicked"]:
 station = st.session_state.get("station")
 factory = st.session_state.get("factory")
 
-# ================= ค้นหาตำแหน่ง =================
-
-st.subheader("🔎 ค้นหาตำแหน่ง")
-
-def search_location(query):
-
-    url="https://nominatim.openstreetmap.org/search"
-
-    params={
-    "q":query,
-    "format":"json",
-    "limit":1
-    }
-
-    headers={"User-Agent":"aircheck"}
-
-    res=requests.get(url,params=params,headers=headers).json()
-
-    if res:
-        lat=float(res[0]["lat"])
-        lon=float(res[0]["lon"])
-        return lat,lon
-
-    return None
-
-
-col1,col2=st.columns(2)
-
-with col1:
-
-    station_search=st.text_input("ค้นหาจุดตรวจวัด")
-
-    if st.button("ปักจุดตรวจวัดจากการค้นหา"):
-
-        loc=search_location(station_search)
-
-        if loc:
-            st.session_state.station=loc
-            st.success("ตั้งค่าจุดตรวจวัดแล้ว")
-
-with col2:
-
-    factory_search=st.text_input("ค้นหาโรงงาน")
-
-    if st.button("ปักโรงงานจากการค้นหา"):
-
-        loc=search_location(factory_search)
-
-        if loc:
-            st.session_state.factory=loc
-            st.success("ตั้งค่าโรงงานแล้ว")
-
-# ================= Bearing =================
+# ================= Distance + Bearing =================
 
 def calculate_bearing(lat1,lon1,lat2,lon2):
 
@@ -174,7 +173,23 @@ def calculate_bearing(lat1,lon1,lat2,lon2):
 
     return bearing
 
+
+def distance_km(lat1,lon1,lat2,lon2):
+
+    R=6371
+
+    dlat=math.radians(lat2-lat1)
+    dlon=math.radians(lon2-lon1)
+
+    a=math.sin(dlat/2)**2+math.cos(math.radians(lat1))*math.cos(math.radians(lat2))*math.sin(dlon/2)**2
+
+    c=2*math.atan2(math.sqrt(a),math.sqrt(1-a))
+
+    return R*c
+
+
 bearing=None
+distance=None
 
 if station and factory:
 
@@ -183,7 +198,13 @@ if station and factory:
         factory[0],factory[1]
     )
 
-    st.info(f"🧭 โรงงานอยู่ทิศ {bearing:.1f}° จากจุดตรวจวัด")
+    distance=distance_km(
+        station[0],station[1],
+        factory[0],factory[1]
+    )
+
+    st.info(f"🧭 ทิศโรงงาน: {bearing:.1f}°")
+    st.info(f"📏 ระยะห่าง: {distance:.2f} km")
 
 # ================= API =================
 
@@ -191,7 +212,6 @@ if station and factory:
 def fetch_api(lat,lon,start_date,num_days):
 
     sd=start_date.strftime("%Y-%m-%d")
-
     ed=(start_date+timedelta(days=num_days-1)).strftime("%Y-%m-%d")
 
     weather=requests.get(
@@ -227,7 +247,6 @@ def simulate(var,hour,row):
 
     ws=row.get("WS",random.uniform(0.5,5))
     wd=row.get("WD",random.uniform(0,360))
-    temp=row.get("Temp",random.uniform(25,35))
 
     if ws<1.5:
         multiplier*=1.3
@@ -242,8 +261,7 @@ def simulate(var,hour,row):
         multiplier*=1.6
 
     if hour in range(7,10) or hour in range(16,20):
-        if var in ["NO","NO2","CO"]:
-            multiplier*=1.3
+        multiplier*=1.3
 
     station_factor={
 "วัด":0.85,
@@ -255,29 +273,7 @@ def simulate(var,hour,row):
 
     multiplier*=station_factor[station_type]
 
-    if var=="NO":
-        base=random.uniform(5,20)
-
-    elif var in ["NO2","SO2","CO","O3"]:
-        base=row.get(f"{var}_ref",random.uniform(5,20))
-
-    elif var=="WS":
-        base=ws
-
-    elif var=="WD":
-        base=wd
-
-    elif var=="Temp":
-        base=temp
-
-    elif var=="RH":
-        base=row.get("RH",random.uniform(40,90))
-
-    elif var=="Pressure":
-        base=1010+random.uniform(-5,5)
-
-    else:
-        base=random.uniform(5,20)
+    base=row.get(f"{var}_ref",random.uniform(5,20))
 
     return round(base*multiplier,2)
 
@@ -338,7 +334,7 @@ if st.button("🚀 เริ่มจำลองข้อมูล"):
         df.to_excel(writer,index=False)
 
     st.download_button(
-"📥 ดาวน์โหลด Excel",
-buf.getvalue(),
-file_name="AirCheckTH.xlsx"
-)
+        "📥 ดาวน์โหลด Excel",
+        buf.getvalue(),
+        file_name="AirCheckTH.xlsx"
+    )
