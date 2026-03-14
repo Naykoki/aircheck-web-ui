@@ -8,9 +8,10 @@ from io import BytesIO
 import folium
 from streamlit_folium import st_folium
 
-st.set_page_config(layout="wide")
+st.set_page_config(page_title="AirCheck TH", layout="wide")
 
-st.title("🌏 AirCheck TH – Air Quality Simulation")
+st.title("🌏 AirCheck TH")
+st.caption("ระบบจำลองคุณภาพอากาศ")
 
 # ---------------- Google API ----------------
 
@@ -33,14 +34,14 @@ province_coords = {
 st.sidebar.header("⚙ การตั้งค่า")
 
 province = st.sidebar.selectbox(
-"จังหวัด",
+"📍 เลือกจังหวัด",
 list(province_coords.keys())
 )
 
 center_lat,center_lon = province_coords[province]
 
 start_date = st.sidebar.date_input(
-"วันที่เริ่มต้น",
+"📅 วันที่เริ่มต้น",
 datetime.now().date()
 )
 
@@ -49,22 +50,16 @@ num_days = st.sidebar.slider(
 1,7,1
 )
 
-near_road = st.sidebar.checkbox("ใกล้ถนนใหญ่")
-near_factory = st.sidebar.checkbox("ใกล้โรงงาน")
-near_community = st.sidebar.checkbox("ใกล้ชุมชน")
+near_road = st.sidebar.checkbox("🚗 ใกล้ถนนใหญ่")
+near_factory = st.sidebar.checkbox("🏭 ใกล้โรงงาน")
+near_community = st.sidebar.checkbox("🏘 ใกล้ชุมชน")
 
 station_type = st.sidebar.selectbox(
-"ประเภทสถานี",
+"🏫 ประเภทสถานี",
 ["วัด","โรงเรียน","ชุมชน","โรงพยาบาล","อุตสาหกรรม"]
 )
 
-params = st.sidebar.multiselect(
-"Parameter",
-["NO","NO2","NOx","SO2","CO","O3","WS","WD","Temp","RH","Pressure"],
-default=["NO","NO2","NOx","SO2","CO","O3"]
-)
-
-# ---------------- Google Geocode ----------------
+# ---------------- Google Search ----------------
 
 def google_search(place):
 
@@ -181,7 +176,7 @@ if map_data["last_clicked"]:
 
         st.session_state.factories.append((lat,lon))
 
-# ---------------- distance ----------------
+# ---------------- Distance ----------------
 
 def distance_km(lat1,lon1,lat2,lon2):
 
@@ -245,13 +240,13 @@ f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude
 
     return df
 
-# ---------------- simulation ----------------
+# ---------------- Simulation ----------------
 
 def simulate(base):
 
     return base * random.uniform(0.8,1.3)
 
-# ---------------- run ----------------
+# ---------------- Run Simulation ----------------
 
 if st.button("🚀 เริ่มจำลองข้อมูล"):
 
@@ -274,10 +269,17 @@ if st.button("🚀 เริ่มจำลองข้อมูล"):
             rows.append({
 "Date":date,
 "Hour":h,
+"NO":random.uniform(5,20),
 "NO2":simulate(r["NO2_ref"]),
+"NOx":simulate(r["NO2_ref"]+random.uniform(2,5)),
 "SO2":simulate(r["SO2_ref"]),
 "CO":simulate(r["CO_ref"]),
-"O3":simulate(r["O3_ref"])
+"O3":simulate(r["O3_ref"]),
+"WS":r["WS"],
+"WD":r["WD"],
+"Temp":r["Temp"],
+"RH":r["RH"],
+"Pressure":1010+random.uniform(-5,5)
 })
 
     df=pd.DataFrame(rows)
@@ -293,7 +295,10 @@ if st.button("🚀 เริ่มจำลองข้อมูล"):
     buf=BytesIO()
 
     with pd.ExcelWriter(buf,engine="openpyxl") as writer:
-        df.to_excel(writer,index=False)
+
+        df.to_excel(writer,index=False,sheet_name="Simulated Data")
+
+        ref_df.to_excel(writer,index=False,sheet_name="Reference Data")
 
     st.download_button(
         "📥 ดาวน์โหลด Excel",
