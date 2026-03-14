@@ -139,19 +139,30 @@ if "station" in st.session_state:
 else:
     map_center = [center_lat,center_lon]
 
-m = folium.Map(location=map_center,zoom_start=12)
+m = folium.Map(
+    location=map_center,
+    zoom_start=12,
+    control_scale=True,
+    tiles=None
+)
+
+# Street Map (มีชื่อสถานที่ชัด)
 
 folium.TileLayer(
-tiles="https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}",
-attr="Google",
-name="Google Map"
+    tiles="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+    name="แผนที่ถนน",
+    attr="OpenStreetMap",
 ).add_to(m)
 
+# Google Hybrid (ดาวเทียม + ชื่อสถานที่)
+
 folium.TileLayer(
-tiles="https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
-attr="Google",
-name="Satellite"
+    tiles="https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}",
+    name="ดาวเทียม",
+    attr="Google",
 ).add_to(m)
+
+# ---------------- Station ----------------
 
 if "station" in st.session_state:
 
@@ -160,6 +171,8 @@ if "station" in st.session_state:
         tooltip="🟢 จุดตรวจวัด",
         icon=folium.Icon(color="green")
     ).add_to(m)
+
+# ---------------- Factory ----------------
 
 if "factories" in st.session_state:
 
@@ -183,10 +196,13 @@ if "factories" in st.session_state:
             folium.PolyLine(
                 [st.session_state.station,f],
                 color="blue",
+                weight=2,
                 tooltip=f"{dist:.2f} km"
             ).add_to(m)
 
-legend_html="""
+# Legend
+
+legend_html = """
 <div style="
 position: fixed;
 bottom: 40px;
@@ -197,13 +213,14 @@ border:2px solid grey;
 z-index:9999;
 padding:10px;
 border-radius:8px;
+font-size:14px;
 ">
 
-<b>คำอธิบาย</b><br>
+<b>คำอธิบายแผนที่</b><br><br>
 
 🟢 จุดตรวจวัด<br>
 🔴 โรงงาน<br>
-🔵 ระยะทาง
+🔵 เส้นระยะทาง
 
 </div>
 """
@@ -212,8 +229,7 @@ m.get_root().html.add_child(folium.Element(legend_html))
 
 folium.LayerControl().add_to(m)
 
-map_data = st_folium(m,height=520,width=1200)
-
+map_data = st_folium(m, height=520, width=1200)
 # ---------------- API ----------------
 
 @st.cache_data
