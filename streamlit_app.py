@@ -8,14 +8,10 @@ from io import BytesIO
 import folium
 from streamlit_folium import st_folium
 
-st.set_page_config(
-    page_title="AirCheck TH",
-    page_icon="🌏",
-    layout="wide"
-)
+st.set_page_config(page_title="AirCheck TH",layout="wide")
 
 st.title("🌏 AirCheck TH")
-st.caption("ระบบจำลองคุณภาพอากาศแบบ Interactive")
+st.caption("ระบบจำลองคุณภาพอากาศ")
 
 # ================= จังหวัด =================
 
@@ -29,34 +25,41 @@ province_coords = {
 "จันทบุรี":(12.6112,102.1035)
 }
 
-# ================= SIDEBAR =================
+# ================= Sidebar =================
 
 st.sidebar.header("⚙ การตั้งค่า")
 
 province = st.sidebar.selectbox(
-"📍 เลือกจังหวัด",
+"📍 จังหวัด",
 list(province_coords.keys())
 )
 
 center_lat,center_lon = province_coords[province]
 
-start_date = st.sidebar.date_input("📅 วันที่เริ่มต้น",datetime.now().date())
+start_date = st.sidebar.date_input(
+"📅 วันที่เริ่มต้น",
+datetime.now().date()
+)
 
-num_days = st.sidebar.slider("จำนวนวัน",1,7,1)
+num_days = st.sidebar.slider(
+"จำนวนวัน",
+1,8,1
+)
 
-st.sidebar.divider()
-
-st.sidebar.subheader("🏙 ลักษณะพื้นที่")
-
-near_road = st.sidebar.checkbox("ใกล้ถนนใหญ่")
-near_community = st.sidebar.checkbox("ใกล้ชุมชน")
+near_road = st.sidebar.checkbox("🚗 ใกล้ถนนใหญ่")
+near_factory = st.sidebar.checkbox("🏭 ใกล้โรงงาน")
+near_community = st.sidebar.checkbox("🏘 ใกล้ชุมชน")
 
 station_type = st.sidebar.selectbox(
-"ประเภทสถานี",
+"🏫 ประเภทสถานี",
 ["วัด","โรงเรียน","ชุมชน","โรงพยาบาล","อุตสาหกรรม"]
 )
 
-st.sidebar.divider()
+params = st.sidebar.multiselect(
+"📊 Parameter",
+["NO","NO2","NOx","SO2","CO","O3","WS","WD","Temp","RH","Pressure"],
+default=["NO","NO2","NOx","SO2","CO","O3","WS","WD","Temp","RH"]
+)
 
 pin_mode = st.sidebar.radio(
 "📌 โหมดปักหมุด",
@@ -73,14 +76,14 @@ if "station" in st.session_state:
     folium.Marker(
         st.session_state.station,
         tooltip="จุดตรวจวัด",
-        icon=folium.Icon(color="green",icon="info-sign")
+        icon=folium.Icon(color="green")
     ).add_to(m)
 
 if "factory" in st.session_state:
     folium.Marker(
         st.session_state.factory,
         tooltip="โรงงาน",
-        icon=folium.Icon(color="red",icon="industry")
+        icon=folium.Icon(color="red")
     ).add_to(m)
 
 map_data = st_folium(m,height=500,width=1200)
@@ -92,31 +95,82 @@ if map_data["last_clicked"]:
 
     if pin_mode=="ปักจุดตรวจวัด":
         st.session_state.station=(lat,lon)
-        st.success("ตั้งค่าจุดตรวจวัดแล้ว")
 
     if pin_mode=="ปักโรงงาน":
         st.session_state.factory=(lat,lon)
-        st.success("ตั้งค่าตำแหน่งโรงงานแล้ว")
 
 station = st.session_state.get("station")
 factory = st.session_state.get("factory")
 
-# ================= ทิศโรงงาน =================
+# ================= ค้นหาตำแหน่ง =================
 
-def calculate_bearing(lat1, lon1, lat2, lon2):
+st.subheader("🔎 ค้นหาตำแหน่ง")
 
-    lat1 = math.radians(lat1)
-    lat2 = math.radians(lat2)
+def search_location(query):
 
-    diffLong = math.radians(lon2 - lon1)
+    url="https://nominatim.openstreetmap.org/search"
 
-    x = math.sin(diffLong) * math.cos(lat2)
-    y = math.cos(lat1) * math.sin(lat2) - (
-        math.sin(lat1) * math.cos(lat2) * math.cos(diffLong)
+    params={
+    "q":query,
+    "format":"json",
+    "limit":1
+    }
+
+    headers={"User-Agent":"aircheck"}
+
+    res=requests.get(url,params=params,headers=headers).json()
+
+    if res:
+        lat=float(res[0]["lat"])
+        lon=float(res[0]["lon"])
+        return lat,lon
+
+    return None
+
+
+col1,col2=st.columns(2)
+
+with col1:
+
+    station_search=st.text_input("ค้นหาจุดตรวจวัด")
+
+    if st.button("ปักจุดตรวจวัดจากการค้นหา"):
+
+        loc=search_location(station_search)
+
+        if loc:
+            st.session_state.station=loc
+            st.success("ตั้งค่าจุดตรวจวัดแล้ว")
+
+with col2:
+
+    factory_search=st.text_input("ค้นหาโรงงาน")
+
+    if st.button("ปักโรงงานจากการค้นหา"):
+
+        loc=search_location(factory_search)
+
+        if loc:
+            st.session_state.factory=loc
+            st.success("ตั้งค่าโรงงานแล้ว")
+
+# ================= Bearing =================
+
+def calculate_bearing(lat1,lon1,lat2,lon2):
+
+    lat1=math.radians(lat1)
+    lat2=math.radians(lat2)
+
+    diffLong=math.radians(lon2-lon1)
+
+    x=math.sin(diffLong)*math.cos(lat2)
+
+    y=math.cos(lat1)*math.sin(lat2)-(
+        math.sin(lat1)*math.cos(lat2)*math.cos(diffLong)
     )
 
-    bearing = math.degrees(math.atan2(x, y))
-    bearing = (bearing + 360) % 360
+    bearing=math.degrees(math.atan2(x,y))
+    bearing=(bearing+360)%360
 
     return bearing
 
@@ -124,7 +178,7 @@ bearing=None
 
 if station and factory:
 
-    bearing = calculate_bearing(
+    bearing=calculate_bearing(
         station[0],station[1],
         factory[0],factory[1]
     )
@@ -137,10 +191,11 @@ if station and factory:
 def fetch_api(lat,lon,start_date,num_days):
 
     sd=start_date.strftime("%Y-%m-%d")
+
     ed=(start_date+timedelta(days=num_days-1)).strftime("%Y-%m-%d")
 
     weather=requests.get(
-f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&hourly=wind_speed_10m,wind_direction_10m&start_date={sd}&end_date={ed}&timezone=Asia/Bangkok"
+f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m&start_date={sd}&end_date={ed}&timezone=Asia/Bangkok"
 ).json()
 
     air=requests.get(
@@ -152,6 +207,8 @@ f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude
 
     df=pd.DataFrame({
 "time":pd.to_datetime(w["time"]),
+"Temp":w["temperature_2m"],
+"RH":w["relative_humidity_2m"],
 "WS":w["wind_speed_10m"],
 "WD":w["wind_direction_10m"],
 "NO2_ref":a["nitrogen_dioxide"],
@@ -168,23 +225,25 @@ def simulate(var,hour,row):
 
     multiplier=1
 
-    ws=row["WS"]
-    wd=row["WD"]
+    ws=row.get("WS",random.uniform(0.5,5))
+    wd=row.get("WD",random.uniform(0,360))
+    temp=row.get("Temp",random.uniform(25,35))
 
     if ws<1.5:
         multiplier*=1.3
 
-    if near_road and var in ["NO2","CO"]:
+    if near_road and var in ["NO","NO2","CO"]:
         multiplier*=1.4
 
     if near_community and var in ["NO2","CO"]:
         multiplier*=1.2
 
-    if bearing and abs(wd-bearing)<20:
+    if near_factory and bearing and abs(wd-bearing)<20:
         multiplier*=1.6
 
     if hour in range(7,10) or hour in range(16,20):
-        multiplier*=1.3
+        if var in ["NO","NO2","CO"]:
+            multiplier*=1.3
 
     station_factor={
 "วัด":0.85,
@@ -196,11 +255,33 @@ def simulate(var,hour,row):
 
     multiplier*=station_factor[station_type]
 
-    ref=row.get(f"{var}_ref",random.uniform(5,20))
+    if var=="NO":
+        base=random.uniform(5,20)
 
-    return round(ref*multiplier,2)
+    elif var in ["NO2","SO2","CO","O3"]:
+        base=row.get(f"{var}_ref",random.uniform(5,20))
 
-# ================= RUN =================
+    elif var=="WS":
+        base=ws
+
+    elif var=="WD":
+        base=wd
+
+    elif var=="Temp":
+        base=temp
+
+    elif var=="RH":
+        base=row.get("RH",random.uniform(40,90))
+
+    elif var=="Pressure":
+        base=1010+random.uniform(-5,5)
+
+    else:
+        base=random.uniform(5,20)
+
+    return round(base*multiplier,2)
+
+# ================= Generate =================
 
 if st.button("🚀 เริ่มจำลองข้อมูล"):
 
@@ -227,26 +308,25 @@ if st.button("🚀 เริ่มจำลองข้อมูล"):
 
             r=match.iloc[0]
 
-            rows.append({
-"Date":date,
-"Hour":h,
-"NO2":simulate("NO2",h,r),
-"SO2":simulate("SO2",h,r),
-"CO":simulate("CO",h,r),
-"O3":simulate("O3",h,r)
-})
+            row={"Date":date,"Hour":h}
+
+            for p in params:
+
+                if p=="NOx":
+                    continue
+
+                row[p]=simulate(p,h,r)
+
+            if "NOx" in params:
+                row["NOx"]=round(row.get("NO",0)+row.get("NO2",0),2)
+
+            rows.append(row)
 
     df=pd.DataFrame(rows)
 
     st.subheader("📊 Dashboard")
 
-    col1,col2=st.columns(2)
-
-    with col1:
-        st.line_chart(df.set_index("Hour")[["NO2","SO2"]])
-
-    with col2:
-        st.line_chart(df.set_index("Hour")[["CO","O3"]])
+    st.line_chart(df.set_index("Hour")[["NO2","SO2","CO","O3"]])
 
     st.subheader("📄 ตารางข้อมูล")
 
