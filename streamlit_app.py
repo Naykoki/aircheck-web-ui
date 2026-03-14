@@ -5,10 +5,10 @@ import requests
 from datetime import datetime, timedelta
 from io import BytesIO
 
-st.set_page_config(page_title="AirCheck TH v2", layout="wide")
+st.set_page_config(page_title="AirCheck TH", layout="wide")
 
-st.title("🌏 AirCheck TH v2")
-st.caption("Air Quality Scenario Generator")
+st.title("🌏 AirCheck TH")
+st.caption("Air Quality Simulation Platform")
 
 # ================= Province =================
 
@@ -17,7 +17,7 @@ province = st.selectbox("📍 จังหวัด",[
 "ราชบุรี","ชลบุรี","จันทบุรี"
 ])
 
-coords = {
+coords={
 "กรุงเทพมหานคร":(13.7563,100.5018),
 "ระยอง":(12.6814,101.2770),
 "อยุธยา":(14.3532,100.5689),
@@ -27,7 +27,7 @@ coords = {
 "จันทบุรี":(12.6112,102.1035)
 }
 
-lat,lon = coords[province]
+lat,lon=coords[province]
 
 start_date = st.date_input("📅 วันที่เริ่มต้น",datetime.now().date())
 num_days = st.slider("จำนวนวัน",1,7,1)
@@ -38,7 +38,7 @@ st.divider()
 
 st.subheader("📍 ลักษณะพื้นที่")
 
-col1,col2,col3 = st.columns(3)
+col1,col2,col3=st.columns(3)
 
 with col1:
     near_road = st.checkbox("🚗 ใกล้ถนนใหญ่")
@@ -70,34 +70,37 @@ default=["NO","NO2","NOx","SO2","CO","O3","WS","WD","Temp","RH"]
 @st.cache_data
 def fetch_api(lat,lon,start_date,num_days):
 
-    sd = start_date.strftime("%Y-%m-%d")
-    ed = (start_date+timedelta(days=num_days-1)).strftime("%Y-%m-%d")
+    sd=start_date.strftime("%Y-%m-%d")
+    ed=(start_date+timedelta(days=num_days-1)).strftime("%Y-%m-%d")
 
-    weather = requests.get(
+    weather=requests.get(
 f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m&start_date={sd}&end_date={ed}&timezone=Asia/Bangkok"
-).json()["hourly"]
+).json()
 
-    air = requests.get(
+    air=requests.get(
 f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={lon}&hourly=carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone&start_date={sd}&end_date={ed}&timezone=Asia/Bangkok"
-).json()["hourly"]
+).json()
 
-    df = pd.DataFrame({
-"time":pd.to_datetime(weather["time"]),
-"Temp":weather["temperature_2m"],
-"RH":weather["relative_humidity_2m"],
-"WS":weather["wind_speed_10m"],
-"WD":weather["wind_direction_10m"],
-"NO2_ref":air["nitrogen_dioxide"],
-"SO2_ref":air["sulphur_dioxide"],
-"CO_ref":air["carbon_monoxide"],
-"O3_ref":air["ozone"]
+    w=weather.get("hourly",{})
+    a=air.get("hourly",{})
+
+    df=pd.DataFrame({
+"time":pd.to_datetime(w.get("time",[])),
+"Temp":w.get("temperature_2m",[]),
+"RH":w.get("relative_humidity_2m",[]),
+"WS":w.get("wind_speed_10m",[]),
+"WD":w.get("wind_direction_10m",[]),
+"NO2_ref":a.get("nitrogen_dioxide",[]),
+"SO2_ref":a.get("sulphur_dioxide",[]),
+"CO_ref":a.get("carbon_monoxide",[]),
+"O3_ref":a.get("ozone",[])
 })
 
     return df
 
-ref_df = fetch_api(lat,lon,start_date,num_days)
+ref_df=fetch_api(lat,lon,start_date,num_days)
 
-# ================= Wind check =================
+# ================= Wind logic =================
 
 def wind_hits_factory(wd,dir):
 
@@ -125,9 +128,9 @@ def simulate(var,hour,row):
 
     multiplier=1.0
 
-    ws=row["WS"]
-    wd=row["WD"]
-    temp=row["Temp"]
+    ws=row.get("WS",random.uniform(0.5,5))
+    wd=row.get("WD",random.uniform(0,360))
+    temp=row.get("Temp",random.uniform(25,35))
 
     if ws<1.5:
         multiplier*=1.3
@@ -143,7 +146,7 @@ def simulate(var,hour,row):
 
     if near_factory and wind_hits_factory(wd,factory_direction):
         if var in ["SO2","NO2"]:
-            multiplier*=random.uniform(1.3,2.0)
+            multiplier*=random.uniform(1.4,2.0)
 
     if hour in range(7,10) or hour in range(16,20):
         if var in ["NO","NO2","CO"]:
@@ -159,15 +162,26 @@ def simulate(var,hour,row):
 
     multiplier*=station_factor[station_type]
 
-    ref=row.get(f"{var}_ref",row.get(var))
+    ref=row.get(f"{var}_ref")
 
-    return round(ref*multiplier,2)
+    if ref is None or pd.isna(ref):
+        ref=row.get(var)
+
+    if ref is None or pd.isna(ref):
+        ref=random.uniform(5,20)
+
+    return round(float(ref)*multiplier,2)
 
 # ================= Generate =================
 
 if st.button("📊 Generate Data"):
 
+    progress=st.progress(0)
+
     rows=[]
+
+    total=num_days*24
+    step=0
 
     for i in range(num_days):
 
@@ -191,14 +205,22 @@ if st.button("📊 Generate Data"):
                 if p=="NOx":
                     continue
 
-                row[p]=simulate(p,h,r)
+                try:
+                    row[p]=simulate(p,h,r)
+                except:
+                    row[p]=None
 
             if "NOx" in params:
-                row["NOx"]=round(row.get("NO",0)+row.get("NO2",0),2)
+                row["NOx"]=round((row.get("NO",0)+row.get("NO2",0)),2)
 
             rows.append(row)
 
+            step+=1
+            progress.progress(step/total)
+
     df=pd.DataFrame(rows)
+
+    st.success("✅ Generated")
 
     st.dataframe(df.head(48))
 
@@ -213,5 +235,5 @@ if st.button("📊 Generate Data"):
     st.download_button(
 "📥 Download Excel",
 buf.getvalue(),
-file_name="AirCheckTH_v2.xlsx"
+file_name="AirCheckTH_v3.xlsx"
 )
