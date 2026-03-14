@@ -11,11 +11,7 @@ from streamlit_folium import st_folium
 st.set_page_config(page_title="AirCheck TH", layout="wide")
 
 st.title("🌏 AirCheck TH")
-st.caption("ระบบจำลองคุณภาพอากาศ")
-
-# ---------------- Google API ----------------
-
-GOOGLE_API_KEY = st.secrets.get("GOOGLE_API_KEY","")
+st.caption("Air Quality Simulation Platform")
 
 # ---------------- จังหวัด ----------------
 
@@ -31,17 +27,17 @@ province_coords = {
 
 # ---------------- Sidebar ----------------
 
-st.sidebar.header("⚙ การตั้งค่า")
+st.sidebar.header("⚙ Simulation Settings")
 
 province = st.sidebar.selectbox(
-"📍 เลือกจังหวัด",
+"จังหวัด",
 list(province_coords.keys())
 )
 
 center_lat,center_lon = province_coords[province]
 
 start_date = st.sidebar.date_input(
-"📅 วันที่เริ่มต้น",
+"วันที่เริ่มต้น",
 datetime.now().date()
 )
 
@@ -50,131 +46,94 @@ num_days = st.sidebar.slider(
 1,7,1
 )
 
-near_road = st.sidebar.checkbox("🚗 ใกล้ถนนใหญ่")
-near_factory = st.sidebar.checkbox("🏭 ใกล้โรงงาน")
-near_community = st.sidebar.checkbox("🏘 ใกล้ชุมชน")
+near_road = st.sidebar.checkbox("ใกล้ถนนใหญ่")
+near_community = st.sidebar.checkbox("ใกล้ชุมชน")
 
 station_type = st.sidebar.selectbox(
-"🏫 ประเภทสถานี",
+"ประเภทสถานี",
 ["วัด","โรงเรียน","ชุมชน","โรงพยาบาล","อุตสาหกรรม"]
 )
 
-# ---------------- Google Search ----------------
+# ---------------- Autocomplete Search ----------------
 
-def google_search(place):
+def search_places(query):
 
-    if GOOGLE_API_KEY == "":
-        return None
-
-    url="https://maps.googleapis.com/maps/api/geocode/json"
+    url="https://photon.komoot.io/api/"
 
     params={
-        "address":place,
-        "key":GOOGLE_API_KEY
+        "q": query + " " + province,
+        "limit": 5
     }
 
     try:
 
         res=requests.get(url,params=params,timeout=10).json()
 
-        if res["results"]:
+        results=[]
 
-            loc=res["results"][0]["geometry"]["location"]
+        for item in res["features"]:
 
-            return loc["lat"],loc["lng"]
+            name=item["properties"].get("name","")
+            city=item["properties"].get("city","")
+
+            lat=item["geometry"]["coordinates"][1]
+            lon=item["geometry"]["coordinates"][0]
+
+            label=f"{name} {city}"
+
+            results.append({
+                "label":label,
+                "lat":lat,
+                "lon":lon
+            })
+
+        return results
 
     except:
-        pass
-
-    return None
+        return []
 
 # ---------------- Search UI ----------------
 
 st.subheader("🔎 ค้นหาสถานที่")
 
-col1,col2 = st.columns(2)
+search_text=st.text_input("พิมพ์ชื่อสถานที่")
 
-with col1:
+if len(search_text)>=2:
 
-    station_search = st.text_input("ค้นหาจุดตรวจวัด")
+    results=search_places(search_text)
 
-    if st.button("📍 ปักจุดตรวจวัด"):
+    options=[r["label"] for r in results]
 
-        loc = google_search(station_search)
+    if options:
 
-        if loc:
-            st.session_state.station = loc
-            st.rerun()
-        else:
-            st.warning("ไม่พบสถานที่")
+        choice=st.selectbox("เลือกสถานที่",options)
 
-with col2:
+        col1,col2=st.columns(2)
 
-    factory_search = st.text_input("ค้นหาโรงงาน")
+        with col1:
 
-    if st.button("🏭 เพิ่มโรงงาน"):
+            if st.button("📍 ตั้งเป็น Station"):
 
-        loc = google_search(factory_search)
+                for r in results:
 
-        if loc:
+                    if r["label"]==choice:
 
-            if "factories" not in st.session_state:
-                st.session_state.factories = []
+                        st.session_state.station=(r["lat"],r["lon"])
+                        st.rerun()
 
-            st.session_state.factories.append(loc)
+        with col2:
 
-            st.rerun()
+            if st.button("🏭 เพิ่ม Factory"):
 
-# ---------------- Map ----------------
+                for r in results:
 
-if "station" in st.session_state:
-    map_center = st.session_state.station
-else:
-    map_center = [center_lat,center_lon]
+                    if r["label"]==choice:
 
-m = folium.Map(
-location=map_center,
-zoom_start=12,
-tiles="https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}",
-attr="Google"
-)
+                        if "factories" not in st.session_state:
+                            st.session_state.factories=[]
 
-if "station" in st.session_state:
-
-    folium.Marker(
-        st.session_state.station,
-        tooltip="Station",
-        icon=folium.Icon(color="green")
-    ).add_to(m)
-
-if "factories" in st.session_state:
-
-    for f in st.session_state.factories:
-
-        folium.Marker(
-            f,
-            tooltip="Factory",
-            icon=folium.Icon(color="red")
-        ).add_to(m)
-
-map_data = st_folium(m,height=500,width=1200)
-
-# ---------------- click map ----------------
-
-if map_data["last_clicked"]:
-
-    lat = map_data["last_clicked"]["lat"]
-    lon = map_data["last_clicked"]["lng"]
-
-    if "station" not in st.session_state:
-        st.session_state.station=(lat,lon)
-
-    else:
-
-        if "factories" not in st.session_state:
-            st.session_state.factories=[]
-
-        st.session_state.factories.append((lat,lon))
+                        st.session_state.factories.append((r["lat"],r["lon"]))
+                        st.rerun()
 
 # ---------------- Distance ----------------
 
@@ -191,21 +150,94 @@ def distance_km(lat1,lon1,lat2,lon2):
 
     return R*c
 
-station = st.session_state.get("station")
-factories = st.session_state.get("factories",[])
+# ---------------- Map ----------------
 
-if station and factories:
+if "station" in st.session_state:
+    map_center=st.session_state.station
+else:
+    map_center=[center_lat,center_lon]
 
-    st.subheader("📏 ระยะโรงงาน")
+m=folium.Map(location=map_center,zoom_start=12,control_scale=True)
 
-    for i,f in enumerate(factories):
+folium.TileLayer(
+    "CartoDB positron",
+    name="Street Map"
+).add_to(m)
 
-        dist = distance_km(
-            station[0],station[1],
-            f[0],f[1]
-        )
+folium.TileLayer(
+    tiles="https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
+    attr="Google",
+    name="Satellite"
+).add_to(m)
 
-        st.write(f"โรงงาน {i+1}: {dist:.2f} km")
+# Station
+
+if "station" in st.session_state:
+
+    folium.Marker(
+        st.session_state.station,
+        tooltip="🟢 Station (จุดตรวจวัด)",
+        icon=folium.Icon(color="green")
+    ).add_to(m)
+
+# Factories
+
+if "factories" in st.session_state:
+
+    for i,f in enumerate(st.session_state.factories):
+
+        folium.Marker(
+            f,
+            tooltip=f"🔴 Factory {i+1}",
+            icon=folium.Icon(color="red")
+        ).add_to(m)
+
+        if "station" in st.session_state:
+
+            dist=distance_km(
+                st.session_state.station[0],
+                st.session_state.station[1],
+                f[0],
+                f[1]
+            )
+
+            folium.PolyLine(
+                [st.session_state.station,f],
+                color="blue",
+                weight=2,
+                tooltip=f"{dist:.2f} km"
+            ).add_to(m)
+
+# Legend
+
+legend_html="""
+<div style="
+position: fixed;
+bottom: 40px;
+left: 40px;
+width: 200px;
+background-color: white;
+border:2px solid grey;
+z-index:9999;
+padding:10px;
+border-radius:8px;
+font-size:14px;
+">
+
+<b>Map Legend</b><br><br>
+
+🟢 Station<br>
+🔴 Factory<br>
+🔵 Distance Line
+
+</div>
+"""
+
+m.get_root().html.add_child(folium.Element(legend_html))
+
+folium.LayerControl().add_to(m)
+
+map_data=st_folium(m,height=520,width=1200)
 
 # ---------------- API ----------------
 
@@ -248,13 +280,15 @@ def simulate(base):
 
 # ---------------- Run Simulation ----------------
 
-if st.button("🚀 เริ่มจำลองข้อมูล"):
+if st.button("🚀 Run Simulation"):
+
+    station=st.session_state.get("station")
 
     if not station:
-        st.warning("กรุณาปักจุดตรวจวัดก่อน")
+        st.warning("กรุณาตั้ง Station ก่อน")
         st.stop()
 
-    ref_df = fetch_api(station[0],station[1],start_date,num_days)
+    ref_df=fetch_api(station[0],station[1],start_date,num_days)
 
     rows=[]
 
@@ -284,11 +318,18 @@ if st.button("🚀 เริ่มจำลองข้อมูล"):
 
     df=pd.DataFrame(rows)
 
-    st.subheader("📊 Dashboard")
+    col1,col2,col3,col4=st.columns(4)
+
+    col1.metric("NO2 Avg",round(df["NO2"].mean(),2))
+    col2.metric("SO2 Avg",round(df["SO2"].mean(),2))
+    col3.metric("CO Avg",round(df["CO"].mean(),2))
+    col4.metric("O3 Avg",round(df["O3"].mean(),2))
+
+    st.subheader("📊 Pollution Dashboard")
 
     st.line_chart(df.set_index("Hour")[["NO2","SO2","CO","O3"]])
 
-    st.subheader("📄 ตารางข้อมูล")
+    st.subheader("📄 Data Table")
 
     st.dataframe(df)
 
@@ -301,7 +342,7 @@ if st.button("🚀 เริ่มจำลองข้อมูล"):
         ref_df.to_excel(writer,index=False,sheet_name="Reference Data")
 
     st.download_button(
-        "📥 ดาวน์โหลด Excel",
+        "📥 Download Excel",
         buf.getvalue(),
         file_name="AirCheckTH.xlsx"
     )
