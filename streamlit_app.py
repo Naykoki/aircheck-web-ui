@@ -132,37 +132,38 @@ def distance_km(lat1,lon1,lat2,lon2):
 
     return R*c
 
+# ---------------- โหมดปักหมุด ----------------
+
+st.sidebar.subheader("📍 โหมดปักหมุด")
+
+pin_mode = st.sidebar.radio(
+    "เลือกประเภทหมุด",
+    ["จุดตรวจวัด","โรงงาน"]
+)
+
 # ---------------- Map ----------------
 
 if "station" in st.session_state:
     map_center = st.session_state.station
 else:
-    map_center = [center_lat,center_lon]
+    map_center = [center_lat, center_lon]
 
 m = folium.Map(
     location=map_center,
     zoom_start=12,
     control_scale=True,
-    tiles=None
+    tiles="OpenStreetMap"
 )
 
-# Street Map (มีชื่อสถานที่ชัด)
-
-folium.TileLayer(
-    tiles="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-    name="แผนที่ถนน",
-    attr="OpenStreetMap",
-).add_to(m)
-
-# Google Hybrid (ดาวเทียม + ชื่อสถานที่)
+# Google Hybrid (ดาวเทียม + label)
 
 folium.TileLayer(
     tiles="https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}",
     name="ดาวเทียม",
-    attr="Google",
+    attr="Google"
 ).add_to(m)
 
-# ---------------- Station ----------------
+# ---------------- จุดตรวจวัด ----------------
 
 if "station" in st.session_state:
 
@@ -172,7 +173,7 @@ if "station" in st.session_state:
         icon=folium.Icon(color="green")
     ).add_to(m)
 
-# ---------------- Factory ----------------
+# ---------------- โรงงาน ----------------
 
 if "factories" in st.session_state:
 
@@ -194,13 +195,12 @@ if "factories" in st.session_state:
             )
 
             folium.PolyLine(
-                [st.session_state.station,f],
+                [st.session_state.station, f],
                 color="blue",
-                weight=2,
                 tooltip=f"{dist:.2f} km"
             ).add_to(m)
 
-# Legend
+# ---------------- Legend ----------------
 
 legend_html = """
 <div style="
@@ -216,11 +216,11 @@ border-radius:8px;
 font-size:14px;
 ">
 
-<b>คำอธิบายแผนที่</b><br><br>
+<b>คำอธิบายแผนที่</b><br>
 
 🟢 จุดตรวจวัด<br>
 🔴 โรงงาน<br>
-🔵 เส้นระยะทาง
+🔵 ระยะทาง
 
 </div>
 """
@@ -229,7 +229,27 @@ m.get_root().html.add_child(folium.Element(legend_html))
 
 folium.LayerControl().add_to(m)
 
+# ---------------- แสดงแผนที่ ----------------
+
 map_data = st_folium(m, height=520, width=1200)
+
+# ---------------- คลิกปักหมุด ----------------
+
+if map_data and map_data.get("last_clicked"):
+
+    lat = map_data["last_clicked"]["lat"]
+    lon = map_data["last_clicked"]["lng"]
+
+    if pin_mode == "จุดตรวจวัด":
+
+        st.session_state.station = (lat, lon)
+
+    else:
+
+        if "factories" not in st.session_state:
+            st.session_state.factories = []
+
+        st.session_state.factories.append((lat, lon))
 # ---------------- API ----------------
 
 @st.cache_data
