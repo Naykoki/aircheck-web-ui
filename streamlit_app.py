@@ -62,6 +62,20 @@ pin_mode = st.sidebar.radio(
 ["จุดตรวจวัด","โรงงาน"]
 )
 
+# ---------------- Distance ----------------
+
+def distance_km(lat1,lon1,lat2,lon2):
+
+    R=6371
+
+    dlat=math.radians(lat2-lat1)
+    dlon=math.radians(lon2-lon1)
+
+    a=math.sin(dlat/2)**2 + math.cos(math.radians(lat1))*math.cos(math.radians(lat2))*math.sin(dlon/2)**2
+    c=2*math.atan2(math.sqrt(a),math.sqrt(1-a))
+
+    return R*c
+
 # ---------------- Map ----------------
 
 if "station" in st.session_state:
@@ -69,13 +83,23 @@ if "station" in st.session_state:
 else:
     map_center = [center_lat,center_lon]
 
-m = folium.Map(
-location=map_center,
-zoom_start=12,
-tiles="CartoDB positron"
-)
+m = folium.Map(location=map_center,zoom_start=12,control_scale=True)
 
-# ---------------- จุดตรวจวัด ----------------
+# Google map layer
+
+folium.TileLayer(
+tiles="https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}",
+attr="Google",
+name="Google Map"
+).add_to(m)
+
+folium.TileLayer(
+tiles="https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
+attr="Google",
+name="Satellite"
+).add_to(m)
+
+# Station
 
 if "station" in st.session_state:
 
@@ -85,7 +109,7 @@ if "station" in st.session_state:
         icon=folium.Icon(color="green")
     ).add_to(m)
 
-# ---------------- โรงงาน ----------------
+# Factories
 
 if "factories" in st.session_state:
 
@@ -99,10 +123,12 @@ if "factories" in st.session_state:
 
         if "station" in st.session_state:
 
-            dist = math.dist(
-                st.session_state.station,
-                f
-            ) * 111
+            dist = distance_km(
+                st.session_state.station[0],
+                st.session_state.station[1],
+                f[0],
+                f[1]
+            )
 
             folium.PolyLine(
                 [st.session_state.station,f],
@@ -111,7 +137,7 @@ if "factories" in st.session_state:
                 tooltip=f"{dist:.2f} km"
             ).add_to(m)
 
-# ---------------- Legend ----------------
+# Legend
 
 legend_html = """
 <div style="
@@ -138,9 +164,11 @@ font-size:14px;
 
 m.get_root().html.add_child(folium.Element(legend_html))
 
+folium.LayerControl().add_to(m)
+
 map_data = st_folium(m,height=520,width=1200)
 
-# ---------------- คลิกแผนที่ ----------------
+# ---------------- Click Map ----------------
 
 if map_data["last_clicked"]:
 
@@ -194,7 +222,6 @@ f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude
 # ---------------- Simulation ----------------
 
 def simulate(base):
-
     return base * random.uniform(0.8,1.3)
 
 # ---------------- Run Simulation ----------------
