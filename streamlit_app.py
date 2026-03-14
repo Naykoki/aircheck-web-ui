@@ -8,64 +8,100 @@ from io import BytesIO
 import folium
 from streamlit_folium import st_folium
 
-st.set_page_config(page_title="AirCheck TH", layout="wide")
-
-st.title("🌏 AirCheck TH – Air Quality Simulation Platform")
-
-# ================= Sidebar =================
-
-st.sidebar.header("⚙ Simulation Settings")
-
-start_date = st.sidebar.date_input("Start Date", datetime.now().date())
-num_days = st.sidebar.slider("Days",1,7,1)
-
-near_road = st.sidebar.checkbox("Near Major Road")
-near_community = st.sidebar.checkbox("Near Community")
-
-station_type = st.sidebar.selectbox(
-"Station Type",
-["Temple","School","Community","Hospital","Industrial"]
+st.set_page_config(
+    page_title="AirCheck TH",
+    page_icon="🌏",
+    layout="wide"
 )
 
-# ================= Map =================
+st.title("🌏 AirCheck TH")
+st.caption("ระบบจำลองคุณภาพอากาศแบบ Interactive")
 
-st.subheader("🗺 Select Locations")
+# ================= จังหวัด =================
 
-st.write("Click map to choose **Station** and **Factory**")
+province_coords = {
+"กรุงเทพมหานคร":(13.7563,100.5018),
+"ระยอง":(12.6814,101.2770),
+"อยุธยา":(14.3532,100.5689),
+"สระบุรี":(14.5289,100.9105),
+"ราชบุรี":(13.5360,99.8171),
+"ชลบุรี":(13.3611,100.9847),
+"จันทบุรี":(12.6112,102.1035)
+}
 
-map_center = [13.75,100.50]
+# ================= SIDEBAR =================
 
-m = folium.Map(location=map_center, zoom_start=10)
+st.sidebar.header("⚙ การตั้งค่า")
 
-map_data = st_folium(m,height=500,width=900)
+province = st.sidebar.selectbox(
+"📍 เลือกจังหวัด",
+list(province_coords.keys())
+)
 
-station = None
-factory = None
+center_lat,center_lon = province_coords[province]
+
+start_date = st.sidebar.date_input("📅 วันที่เริ่มต้น",datetime.now().date())
+
+num_days = st.sidebar.slider("จำนวนวัน",1,7,1)
+
+st.sidebar.divider()
+
+st.sidebar.subheader("🏙 ลักษณะพื้นที่")
+
+near_road = st.sidebar.checkbox("ใกล้ถนนใหญ่")
+near_community = st.sidebar.checkbox("ใกล้ชุมชน")
+
+station_type = st.sidebar.selectbox(
+"ประเภทสถานี",
+["วัด","โรงเรียน","ชุมชน","โรงพยาบาล","อุตสาหกรรม"]
+)
+
+st.sidebar.divider()
+
+pin_mode = st.sidebar.radio(
+"📌 โหมดปักหมุด",
+["ปักจุดตรวจวัด","ปักโรงงาน"]
+)
+
+# ================= MAP =================
+
+st.subheader("🗺 แผนที่")
+
+m = folium.Map(location=[center_lat,center_lon],zoom_start=10)
+
+if "station" in st.session_state:
+    folium.Marker(
+        st.session_state.station,
+        tooltip="จุดตรวจวัด",
+        icon=folium.Icon(color="green",icon="info-sign")
+    ).add_to(m)
+
+if "factory" in st.session_state:
+    folium.Marker(
+        st.session_state.factory,
+        tooltip="โรงงาน",
+        icon=folium.Icon(color="red",icon="industry")
+    ).add_to(m)
+
+map_data = st_folium(m,height=500,width=1200)
 
 if map_data["last_clicked"]:
 
     lat = map_data["last_clicked"]["lat"]
     lon = map_data["last_clicked"]["lng"]
 
-    if "station_set" not in st.session_state:
-        st.session_state.station = (lat,lon)
-        st.session_state.station_set = True
-        st.success("Station location set")
+    if pin_mode=="ปักจุดตรวจวัด":
+        st.session_state.station=(lat,lon)
+        st.success("ตั้งค่าจุดตรวจวัดแล้ว")
 
-    else:
-        st.session_state.factory = (lat,lon)
-        st.success("Factory location set")
+    if pin_mode=="ปักโรงงาน":
+        st.session_state.factory=(lat,lon)
+        st.success("ตั้งค่าตำแหน่งโรงงานแล้ว")
 
 station = st.session_state.get("station")
 factory = st.session_state.get("factory")
 
-if station:
-    st.write("Station:",station)
-
-if factory:
-    st.write("Factory:",factory)
-
-# ================= Distance + Bearing =================
+# ================= ทิศโรงงาน =================
 
 def calculate_bearing(lat1, lon1, lat2, lon2):
 
@@ -84,36 +120,16 @@ def calculate_bearing(lat1, lon1, lat2, lon2):
 
     return bearing
 
-def distance_km(lat1,lon1,lat2,lon2):
-
-    R=6371
-
-    dlat=math.radians(lat2-lat1)
-    dlon=math.radians(lon2-lon1)
-
-    a=math.sin(dlat/2)**2+math.cos(math.radians(lat1))*math.cos(math.radians(lat2))*math.sin(dlon/2)**2
-
-    c=2*math.atan2(math.sqrt(a),math.sqrt(1-a))
-
-    return R*c
-
 bearing=None
-distance=None
 
 if station and factory:
 
-    bearing=calculate_bearing(
+    bearing = calculate_bearing(
         station[0],station[1],
         factory[0],factory[1]
     )
 
-    distance=distance_km(
-        station[0],station[1],
-        factory[0],factory[1]
-    )
-
-    st.info(f"Factory direction: {bearing:.1f}°")
-    st.info(f"Distance: {distance:.2f} km")
+    st.info(f"🧭 โรงงานอยู่ทิศ {bearing:.1f}° จากจุดตรวจวัด")
 
 # ================= API =================
 
@@ -124,7 +140,7 @@ def fetch_api(lat,lon,start_date,num_days):
     ed=(start_date+timedelta(days=num_days-1)).strftime("%Y-%m-%d")
 
     weather=requests.get(
-f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m&start_date={sd}&end_date={ed}&timezone=Asia/Bangkok"
+f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&hourly=wind_speed_10m,wind_direction_10m&start_date={sd}&end_date={ed}&timezone=Asia/Bangkok"
 ).json()
 
     air=requests.get(
@@ -136,8 +152,6 @@ f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude
 
     df=pd.DataFrame({
 "time":pd.to_datetime(w["time"]),
-"Temp":w["temperature_2m"],
-"RH":w["relative_humidity_2m"],
 "WS":w["wind_speed_10m"],
 "WD":w["wind_direction_10m"],
 "NO2_ref":a["nitrogen_dioxide"],
@@ -152,7 +166,7 @@ f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude
 
 def simulate(var,hour,row):
 
-    multiplier=1.0
+    multiplier=1
 
     ws=row["WS"]
     wd=row["WD"]
@@ -173,11 +187,11 @@ def simulate(var,hour,row):
         multiplier*=1.3
 
     station_factor={
-"Temple":0.85,
-"Hospital":0.9,
-"Community":1.0,
-"School":1.05,
-"Industrial":1.2
+"วัด":0.85,
+"โรงเรียน":1.05,
+"ชุมชน":1.0,
+"โรงพยาบาล":0.9,
+"อุตสาหกรรม":1.2
 }
 
     multiplier*=station_factor[station_type]
@@ -186,12 +200,12 @@ def simulate(var,hour,row):
 
     return round(ref*multiplier,2)
 
-# ================= Generate =================
+# ================= RUN =================
 
-if st.button("🚀 Run Simulation"):
+if st.button("🚀 เริ่มจำลองข้อมูล"):
 
     if not station:
-        st.warning("Please select station on map")
+        st.warning("กรุณาปักจุดตรวจวัดก่อน")
         st.stop()
 
     ref_df=fetch_api(station[0],station[1],start_date,num_days)
@@ -224,11 +238,19 @@ if st.button("🚀 Run Simulation"):
 
     df=pd.DataFrame(rows)
 
-    st.subheader("📊 Pollution Dashboard")
+    st.subheader("📊 Dashboard")
 
-    st.line_chart(df.set_index("Hour")[["NO2","SO2","CO","O3"]])
+    col1,col2=st.columns(2)
 
-    st.dataframe(df.head(48))
+    with col1:
+        st.line_chart(df.set_index("Hour")[["NO2","SO2"]])
+
+    with col2:
+        st.line_chart(df.set_index("Hour")[["CO","O3"]])
+
+    st.subheader("📄 ตารางข้อมูล")
+
+    st.dataframe(df)
 
     buf=BytesIO()
 
@@ -236,7 +258,7 @@ if st.button("🚀 Run Simulation"):
         df.to_excel(writer,index=False)
 
     st.download_button(
-"📥 Download Excel",
+"📥 ดาวน์โหลด Excel",
 buf.getvalue(),
-file_name="AirCheckTH_v5.xlsx"
+file_name="AirCheckTH.xlsx"
 )
