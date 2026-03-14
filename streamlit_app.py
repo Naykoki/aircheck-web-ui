@@ -10,7 +10,7 @@ from streamlit_folium import st_folium
 
 st.set_page_config(page_title="AirCheck TH", layout="wide")
 
-st.title("🌏 AirCheck TH – ระบบจำลองคุณภาพอากาศ")
+st.title("🌏 AirCheck TH – Air Quality Simulation Platform")
 
 # ================= จังหวัด =================
 
@@ -24,7 +24,7 @@ province_coords = {
 "จันทบุรี":(12.6112,102.1035)
 }
 
-# ================= Sidebar =================
+# ================= SIDEBAR =================
 
 st.sidebar.header("⚙ การตั้งค่า")
 
@@ -36,6 +36,7 @@ list(province_coords.keys())
 center_lat,center_lon = province_coords[province]
 
 start_date = st.sidebar.date_input("📅 วันที่เริ่มต้น",datetime.now().date())
+
 num_days = st.sidebar.slider("จำนวนวัน",1,8,1)
 
 near_road = st.sidebar.checkbox("🚗 ใกล้ถนนใหญ่")
@@ -47,42 +48,24 @@ station_type = st.sidebar.selectbox(
 ["วัด","โรงเรียน","ชุมชน","โรงพยาบาล","อุตสาหกรรม"]
 )
 
-params = st.sidebar.multiselect(
-"📊 Parameter",
-["NO","NO2","NOx","SO2","CO","O3","WS","WD","Temp","RH","Pressure"],
-default=["NO","NO2","NOx","SO2","CO","O3","WS","WD","Temp","RH"]
-)
+# ================= SEARCH =================
 
-pin_mode = st.sidebar.radio(
-"📌 โหมดปักหมุด",
-["ปักจุดตรวจวัด","ปักโรงงาน"]
-)
-
-# ================= ค้นหาตำแหน่ง =================
+st.subheader("🔎 ค้นหาสถานที่")
 
 def search_location(query):
 
-    url="https://nominatim.openstreetmap.org/search"
+    url="https://photon.komoot.io/api/"
 
-    params={
-        "q":query,
-        "format":"json",
-        "limit":1
-    }
+    params={"q":query,"limit":1}
 
-    headers={"User-Agent":"aircheck"}
+    res=requests.get(url,params=params).json()
 
-    res=requests.get(url,params=params,headers=headers).json()
-
-    if res:
-        lat=float(res[0]["lat"])
-        lon=float(res[0]["lon"])
+    if res["features"]:
+        lon,lat=res["features"][0]["geometry"]["coordinates"]
         return lat,lon
 
     return None
 
-
-st.subheader("🔎 ค้นหาตำแหน่ง")
 
 col1,col2 = st.columns(2)
 
@@ -90,7 +73,7 @@ with col1:
 
     station_search = st.text_input("ค้นหาจุดตรวจวัด")
 
-    if st.button("ปักจุดตรวจวัด"):
+    if st.button("📍 ปักจุดตรวจวัด"):
 
         loc = search_location(station_search)
 
@@ -102,15 +85,20 @@ with col2:
 
     factory_search = st.text_input("ค้นหาโรงงาน")
 
-    if st.button("ปักโรงงาน"):
+    if st.button("🏭 เพิ่มโรงงาน"):
 
         loc = search_location(factory_search)
 
         if loc:
-            st.session_state.factory = loc
+
+            if "factories" not in st.session_state:
+                st.session_state.factories = []
+
+            st.session_state.factories.append(loc)
+
             st.rerun()
 
-# ================= Map =================
+# ================= MAP =================
 
 if "station" in st.session_state:
     map_center = st.session_state.station
@@ -119,7 +107,13 @@ else:
 
 st.subheader("🗺 แผนที่")
 
-m = folium.Map(location=map_center, zoom_start=12)
+m = folium.Map(
+    location=map_center,
+    zoom_start=12,
+    tiles="CartoDB positron"
+)
+
+# station marker
 
 if "station" in st.session_state:
 
@@ -129,50 +123,38 @@ if "station" in st.session_state:
         icon=folium.Icon(color="green")
     ).add_to(m)
 
-if "factory" in st.session_state:
+# factory markers
 
-    folium.Marker(
-        st.session_state.factory,
-        tooltip="โรงงาน",
-        icon=folium.Icon(color="red")
-    ).add_to(m)
+if "factories" in st.session_state:
+
+    for f in st.session_state.factories:
+
+        folium.Marker(
+            f,
+            tooltip="โรงงาน",
+            icon=folium.Icon(color="red")
+        ).add_to(m)
 
 map_data = st_folium(m,height=500,width=1200)
+
+# click to add
 
 if map_data["last_clicked"]:
 
     lat = map_data["last_clicked"]["lat"]
     lon = map_data["last_clicked"]["lng"]
 
-    if pin_mode=="ปักจุดตรวจวัด":
-        st.session_state.station=(lat,lon)
+    if "station" not in st.session_state:
+        st.session_state.station = (lat,lon)
 
-    if pin_mode=="ปักโรงงาน":
-        st.session_state.factory=(lat,lon)
+    else:
 
-station = st.session_state.get("station")
-factory = st.session_state.get("factory")
+        if "factories" not in st.session_state:
+            st.session_state.factories = []
 
-# ================= Distance + Bearing =================
+        st.session_state.factories.append((lat,lon))
 
-def calculate_bearing(lat1,lon1,lat2,lon2):
-
-    lat1=math.radians(lat1)
-    lat2=math.radians(lat2)
-
-    diffLong=math.radians(lon2-lon1)
-
-    x=math.sin(diffLong)*math.cos(lat2)
-
-    y=math.cos(lat1)*math.sin(lat2)-(
-        math.sin(lat1)*math.cos(lat2)*math.cos(diffLong)
-    )
-
-    bearing=math.degrees(math.atan2(x,y))
-    bearing=(bearing+360)%360
-
-    return bearing
-
+# ================= Distance =================
 
 def distance_km(lat1,lon1,lat2,lon2):
 
@@ -187,24 +169,22 @@ def distance_km(lat1,lon1,lat2,lon2):
 
     return R*c
 
+station = st.session_state.get("station")
 
-bearing=None
-distance=None
+factories = st.session_state.get("factories",[])
 
-if station and factory:
+if station and factories:
 
-    bearing=calculate_bearing(
-        station[0],station[1],
-        factory[0],factory[1]
-    )
+    st.subheader("📏 ระยะโรงงาน")
 
-    distance=distance_km(
-        station[0],station[1],
-        factory[0],factory[1]
-    )
+    for i,f in enumerate(factories):
 
-    st.info(f"🧭 ทิศโรงงาน: {bearing:.1f}°")
-    st.info(f"📏 ระยะห่าง: {distance:.2f} km")
+        dist = distance_km(
+            station[0],station[1],
+            f[0],f[1]
+        )
+
+        st.write(f"โรงงาน {i+1}: {dist:.2f} km")
 
 # ================= API =================
 
@@ -212,10 +192,11 @@ if station and factory:
 def fetch_api(lat,lon,start_date,num_days):
 
     sd=start_date.strftime("%Y-%m-%d")
+
     ed=(start_date+timedelta(days=num_days-1)).strftime("%Y-%m-%d")
 
     weather=requests.get(
-f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m&start_date={sd}&end_date={ed}&timezone=Asia/Bangkok"
+f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&hourly=wind_speed_10m,wind_direction_10m&start_date={sd}&end_date={ed}&timezone=Asia/Bangkok"
 ).json()
 
     air=requests.get(
@@ -227,8 +208,6 @@ f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude
 
     df=pd.DataFrame({
 "time":pd.to_datetime(w["time"]),
-"Temp":w["temperature_2m"],
-"RH":w["relative_humidity_2m"],
 "WS":w["wind_speed_10m"],
 "WD":w["wind_direction_10m"],
 "NO2_ref":a["nitrogen_dioxide"],
@@ -239,45 +218,7 @@ f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude
 
     return df
 
-# ================= Simulation =================
-
-def simulate(var,hour,row):
-
-    multiplier=1
-
-    ws=row.get("WS",random.uniform(0.5,5))
-    wd=row.get("WD",random.uniform(0,360))
-
-    if ws<1.5:
-        multiplier*=1.3
-
-    if near_road and var in ["NO","NO2","CO"]:
-        multiplier*=1.4
-
-    if near_community and var in ["NO2","CO"]:
-        multiplier*=1.2
-
-    if near_factory and bearing and abs(wd-bearing)<20:
-        multiplier*=1.6
-
-    if hour in range(7,10) or hour in range(16,20):
-        multiplier*=1.3
-
-    station_factor={
-"วัด":0.85,
-"โรงเรียน":1.05,
-"ชุมชน":1.0,
-"โรงพยาบาล":0.9,
-"อุตสาหกรรม":1.2
-}
-
-    multiplier*=station_factor[station_type]
-
-    base=row.get(f"{var}_ref",random.uniform(5,20))
-
-    return round(base*multiplier,2)
-
-# ================= Generate =================
+# ================= RUN =================
 
 if st.button("🚀 เริ่มจำลองข้อมูล"):
 
@@ -285,7 +226,7 @@ if st.button("🚀 เริ่มจำลองข้อมูล"):
         st.warning("กรุณาปักจุดตรวจวัดก่อน")
         st.stop()
 
-    ref_df=fetch_api(station[0],station[1],start_date,num_days)
+    ref_df = fetch_api(station[0],station[1],start_date,num_days)
 
     rows=[]
 
@@ -304,19 +245,14 @@ if st.button("🚀 เริ่มจำลองข้อมูล"):
 
             r=match.iloc[0]
 
-            row={"Date":date,"Hour":h}
-
-            for p in params:
-
-                if p=="NOx":
-                    continue
-
-                row[p]=simulate(p,h,r)
-
-            if "NOx" in params:
-                row["NOx"]=round(row.get("NO",0)+row.get("NO2",0),2)
-
-            rows.append(row)
+            rows.append({
+"Date":date,
+"Hour":h,
+"NO2":r["NO2_ref"]*random.uniform(0.8,1.3),
+"SO2":r["SO2_ref"]*random.uniform(0.8,1.3),
+"CO":r["CO_ref"]*random.uniform(0.8,1.3),
+"O3":r["O3_ref"]*random.uniform(0.8,1.3)
+})
 
     df=pd.DataFrame(rows)
 
@@ -331,6 +267,7 @@ if st.button("🚀 เริ่มจำลองข้อมูล"):
     buf=BytesIO()
 
     with pd.ExcelWriter(buf,engine="openpyxl") as writer:
+
         df.to_excel(writer,index=False)
 
     st.download_button(
