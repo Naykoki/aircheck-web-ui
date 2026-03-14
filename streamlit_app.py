@@ -11,7 +11,7 @@ from streamlit_folium import st_folium
 st.set_page_config(page_title="AirCheck TH", layout="wide")
 
 st.title("🌏 AirCheck TH")
-st.caption("Air Quality Simulation Platform")
+st.caption("ระบบจำลองคุณภาพอากาศ")
 
 # ---------------- จังหวัด ----------------
 
@@ -27,17 +27,17 @@ province_coords = {
 
 # ---------------- Sidebar ----------------
 
-st.sidebar.header("⚙ Simulation Settings")
+st.sidebar.header("⚙ การตั้งค่า")
 
 province = st.sidebar.selectbox(
-"จังหวัด",
+"📍 เลือกจังหวัด",
 list(province_coords.keys())
 )
 
 center_lat,center_lon = province_coords[province]
 
 start_date = st.sidebar.date_input(
-"วันที่เริ่มต้น",
+"📅 วันที่เริ่มต้น",
 datetime.now().date()
 )
 
@@ -46,141 +46,46 @@ num_days = st.sidebar.slider(
 1,7,1
 )
 
-near_road = st.sidebar.checkbox("ใกล้ถนนใหญ่")
-near_community = st.sidebar.checkbox("ใกล้ชุมชน")
+near_road = st.sidebar.checkbox("🚗 ใกล้ถนนใหญ่")
+near_factory = st.sidebar.checkbox("🏭 ใกล้โรงงาน")
+near_community = st.sidebar.checkbox("🏘 ใกล้ชุมชน")
 
 station_type = st.sidebar.selectbox(
-"ประเภทสถานี",
+"🏫 ประเภทสถานี",
 ["วัด","โรงเรียน","ชุมชน","โรงพยาบาล","อุตสาหกรรม"]
 )
 
-# ---------------- Autocomplete Search ----------------
+st.sidebar.subheader("📍 โหมดปักหมุด")
 
-def search_places(query):
-
-    url="https://photon.komoot.io/api/"
-
-    params={
-        "q": query + " " + province,
-        "limit": 5
-    }
-
-    try:
-
-        res=requests.get(url,params=params,timeout=10).json()
-
-        results=[]
-
-        for item in res["features"]:
-
-            name=item["properties"].get("name","")
-            city=item["properties"].get("city","")
-
-            lat=item["geometry"]["coordinates"][1]
-            lon=item["geometry"]["coordinates"][0]
-
-            label=f"{name} {city}"
-
-            results.append({
-                "label":label,
-                "lat":lat,
-                "lon":lon
-            })
-
-        return results
-
-    except:
-        return []
-
-# ---------------- Search UI ----------------
-
-st.subheader("🔎 ค้นหาสถานที่")
-
-search_text=st.text_input("พิมพ์ชื่อสถานที่")
-
-if len(search_text)>=2:
-
-    results=search_places(search_text)
-
-    options=[r["label"] for r in results]
-
-    if options:
-
-        choice=st.selectbox("เลือกสถานที่",options)
-
-        col1,col2=st.columns(2)
-
-        with col1:
-
-            if st.button("📍 ตั้งเป็น Station"):
-
-                for r in results:
-
-                    if r["label"]==choice:
-
-                        st.session_state.station=(r["lat"],r["lon"])
-                        st.rerun()
-
-        with col2:
-
-            if st.button("🏭 เพิ่ม Factory"):
-
-                for r in results:
-
-                    if r["label"]==choice:
-
-                        if "factories" not in st.session_state:
-                            st.session_state.factories=[]
-
-                        st.session_state.factories.append((r["lat"],r["lon"]))
-                        st.rerun()
-
-# ---------------- Distance ----------------
-
-def distance_km(lat1,lon1,lat2,lon2):
-
-    R=6371
-
-    dlat=math.radians(lat2-lat1)
-    dlon=math.radians(lon2-lon1)
-
-    a=math.sin(dlat/2)**2+math.cos(math.radians(lat1))*math.cos(math.radians(lat2))*math.sin(dlon/2)**2
-
-    c=2*math.atan2(math.sqrt(a),math.sqrt(1-a))
-
-    return R*c
+pin_mode = st.sidebar.radio(
+"เลือกประเภทหมุด",
+["จุดตรวจวัด","โรงงาน"]
+)
 
 # ---------------- Map ----------------
 
 if "station" in st.session_state:
-    map_center=st.session_state.station
+    map_center = st.session_state.station
 else:
-    map_center=[center_lat,center_lon]
+    map_center = [center_lat,center_lon]
 
-m=folium.Map(location=map_center,zoom_start=12,control_scale=True)
+m = folium.Map(
+location=map_center,
+zoom_start=12,
+tiles="CartoDB positron"
+)
 
-folium.TileLayer(
-    "CartoDB positron",
-    name="Street Map"
-).add_to(m)
-
-folium.TileLayer(
-    tiles="https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
-    attr="Google",
-    name="Satellite"
-).add_to(m)
-
-# Station
+# ---------------- จุดตรวจวัด ----------------
 
 if "station" in st.session_state:
 
     folium.Marker(
         st.session_state.station,
-        tooltip="🟢 Station (จุดตรวจวัด)",
+        tooltip="🟢 จุดตรวจวัด",
         icon=folium.Icon(color="green")
     ).add_to(m)
 
-# Factories
+# ---------------- โรงงาน ----------------
 
 if "factories" in st.session_state:
 
@@ -188,18 +93,16 @@ if "factories" in st.session_state:
 
         folium.Marker(
             f,
-            tooltip=f"🔴 Factory {i+1}",
+            tooltip=f"🔴 โรงงาน {i+1}",
             icon=folium.Icon(color="red")
         ).add_to(m)
 
         if "station" in st.session_state:
 
-            dist=distance_km(
-                st.session_state.station[0],
-                st.session_state.station[1],
-                f[0],
-                f[1]
-            )
+            dist = math.dist(
+                st.session_state.station,
+                f
+            ) * 111
 
             folium.PolyLine(
                 [st.session_state.station,f],
@@ -208,9 +111,9 @@ if "factories" in st.session_state:
                 tooltip=f"{dist:.2f} km"
             ).add_to(m)
 
-# Legend
+# ---------------- Legend ----------------
 
-legend_html="""
+legend_html = """
 <div style="
 position: fixed;
 bottom: 40px;
@@ -224,20 +127,36 @@ border-radius:8px;
 font-size:14px;
 ">
 
-<b>Map Legend</b><br><br>
+<b>คำอธิบายแผนที่</b><br><br>
 
-🟢 Station<br>
-🔴 Factory<br>
-🔵 Distance Line
+🟢 จุดตรวจวัด<br>
+🔴 โรงงาน<br>
+🔵 เส้นระยะทาง
 
 </div>
 """
 
 m.get_root().html.add_child(folium.Element(legend_html))
 
-folium.LayerControl().add_to(m)
+map_data = st_folium(m,height=520,width=1200)
 
-map_data=st_folium(m,height=520,width=1200)
+# ---------------- คลิกแผนที่ ----------------
+
+if map_data["last_clicked"]:
+
+    lat = map_data["last_clicked"]["lat"]
+    lon = map_data["last_clicked"]["lng"]
+
+    if pin_mode == "จุดตรวจวัด":
+
+        st.session_state.station=(lat,lon)
+
+    else:
+
+        if "factories" not in st.session_state:
+            st.session_state.factories=[]
+
+        st.session_state.factories.append((lat,lon))
 
 # ---------------- API ----------------
 
@@ -280,15 +199,15 @@ def simulate(base):
 
 # ---------------- Run Simulation ----------------
 
-if st.button("🚀 Run Simulation"):
+if st.button("🚀 เริ่มจำลองข้อมูล"):
 
-    station=st.session_state.get("station")
-
-    if not station:
-        st.warning("กรุณาตั้ง Station ก่อน")
+    if "station" not in st.session_state:
+        st.warning("กรุณาปักจุดตรวจวัดก่อน")
         st.stop()
 
-    ref_df=fetch_api(station[0],station[1],start_date,num_days)
+    station = st.session_state.station
+
+    ref_df = fetch_api(station[0],station[1],start_date,num_days)
 
     rows=[]
 
@@ -318,18 +237,11 @@ if st.button("🚀 Run Simulation"):
 
     df=pd.DataFrame(rows)
 
-    col1,col2,col3,col4=st.columns(4)
-
-    col1.metric("NO2 Avg",round(df["NO2"].mean(),2))
-    col2.metric("SO2 Avg",round(df["SO2"].mean(),2))
-    col3.metric("CO Avg",round(df["CO"].mean(),2))
-    col4.metric("O3 Avg",round(df["O3"].mean(),2))
-
-    st.subheader("📊 Pollution Dashboard")
+    st.subheader("📊 Dashboard")
 
     st.line_chart(df.set_index("Hour")[["NO2","SO2","CO","O3"]])
 
-    st.subheader("📄 Data Table")
+    st.subheader("📄 ตารางข้อมูล")
 
     st.dataframe(df)
 
@@ -338,11 +250,10 @@ if st.button("🚀 Run Simulation"):
     with pd.ExcelWriter(buf,engine="openpyxl") as writer:
 
         df.to_excel(writer,index=False,sheet_name="Simulated Data")
-
         ref_df.to_excel(writer,index=False,sheet_name="Reference Data")
 
     st.download_button(
-        "📥 Download Excel",
+        "📥 ดาวน์โหลด Excel",
         buf.getvalue(),
         file_name="AirCheckTH.xlsx"
     )
