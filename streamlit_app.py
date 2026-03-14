@@ -55,12 +55,68 @@ station_type = st.sidebar.selectbox(
 ["วัด","โรงเรียน","ชุมชน","โรงพยาบาล","อุตสาหกรรม"]
 )
 
-st.sidebar.subheader("📍 โหมดปักหมุด")
+# ---------------- Search ----------------
 
-pin_mode = st.sidebar.radio(
-"เลือกประเภทหมุด",
-["จุดตรวจวัด","โรงงาน"]
-)
+def search_location(place):
+
+    url="https://nominatim.openstreetmap.org/search"
+
+    params={
+        "q": place + " " + province,
+        "format":"json",
+        "limit":1
+    }
+
+    headers={"User-Agent":"aircheck"}
+
+    try:
+
+        res=requests.get(url,params=params,headers=headers).json()
+
+        if res:
+
+            lat=float(res[0]["lat"])
+            lon=float(res[0]["lon"])
+
+            return lat,lon
+
+    except:
+        pass
+
+    return None
+
+st.subheader("🔎 ค้นหาสถานที่")
+
+col1,col2 = st.columns(2)
+
+with col1:
+
+    station_search = st.text_input("ค้นหาจุดตรวจวัด")
+
+    if st.button("📍 ตั้งเป็นจุดตรวจวัด"):
+
+        loc = search_location(station_search)
+
+        if loc:
+            st.session_state.station = loc
+            st.rerun()
+
+with col2:
+
+    factory_search = st.text_input("ค้นหาโรงงาน")
+
+    if st.button("🏭 เพิ่มโรงงาน"):
+
+        loc = search_location(factory_search)
+
+        if loc:
+
+            if "factories" not in st.session_state:
+                st.session_state.factories=[]
+
+            st.session_state.factories.append(loc)
+
+            st.rerun()
 
 # ---------------- Distance ----------------
 
@@ -71,7 +127,7 @@ def distance_km(lat1,lon1,lat2,lon2):
     dlat=math.radians(lat2-lat1)
     dlon=math.radians(lon2-lon1)
 
-    a=math.sin(dlat/2)**2 + math.cos(math.radians(lat1))*math.cos(math.radians(lat2))*math.sin(dlon/2)**2
+    a=math.sin(dlat/2)**2+math.cos(math.radians(lat1))*math.cos(math.radians(lat2))*math.sin(dlon/2)**2
     c=2*math.atan2(math.sqrt(a),math.sqrt(1-a))
 
     return R*c
@@ -83,9 +139,7 @@ if "station" in st.session_state:
 else:
     map_center = [center_lat,center_lon]
 
-m = folium.Map(location=map_center,zoom_start=12,control_scale=True)
-
-# Google map layer
+m = folium.Map(location=map_center,zoom_start=12)
 
 folium.TileLayer(
 tiles="https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}",
@@ -99,8 +153,6 @@ attr="Google",
 name="Satellite"
 ).add_to(m)
 
-# Station
-
 if "station" in st.session_state:
 
     folium.Marker(
@@ -108,8 +160,6 @@ if "station" in st.session_state:
         tooltip="🟢 จุดตรวจวัด",
         icon=folium.Icon(color="green")
     ).add_to(m)
-
-# Factories
 
 if "factories" in st.session_state:
 
@@ -133,13 +183,10 @@ if "factories" in st.session_state:
             folium.PolyLine(
                 [st.session_state.station,f],
                 color="blue",
-                weight=2,
                 tooltip=f"{dist:.2f} km"
             ).add_to(m)
 
-# Legend
-
-legend_html = """
+legend_html="""
 <div style="
 position: fixed;
 bottom: 40px;
@@ -150,14 +197,13 @@ border:2px solid grey;
 z-index:9999;
 padding:10px;
 border-radius:8px;
-font-size:14px;
 ">
 
-<b>คำอธิบายแผนที่</b><br><br>
+<b>คำอธิบาย</b><br>
 
 🟢 จุดตรวจวัด<br>
 🔴 โรงงาน<br>
-🔵 เส้นระยะทาง
+🔵 ระยะทาง
 
 </div>
 """
@@ -167,24 +213,6 @@ m.get_root().html.add_child(folium.Element(legend_html))
 folium.LayerControl().add_to(m)
 
 map_data = st_folium(m,height=520,width=1200)
-
-# ---------------- Click Map ----------------
-
-if map_data["last_clicked"]:
-
-    lat = map_data["last_clicked"]["lat"]
-    lon = map_data["last_clicked"]["lng"]
-
-    if pin_mode == "จุดตรวจวัด":
-
-        st.session_state.station=(lat,lon)
-
-    else:
-
-        if "factories" not in st.session_state:
-            st.session_state.factories=[]
-
-        st.session_state.factories.append((lat,lon))
 
 # ---------------- API ----------------
 
