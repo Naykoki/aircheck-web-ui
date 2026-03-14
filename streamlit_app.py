@@ -5,10 +5,9 @@ import requests
 from datetime import datetime, timedelta
 from io import BytesIO
 
-st.set_page_config(page_title="AirCheck TH", layout="wide")
+st.set_page_config(page_title="AirCheck TH Dashboard",layout="wide")
 
-st.title("🌏 AirCheck TH")
-st.caption("Air Quality Simulation Platform")
+st.title("🌏 AirCheck TH Dashboard")
 
 # ================= Province =================
 
@@ -29,25 +28,23 @@ coords={
 
 lat,lon=coords[province]
 
+st.map(pd.DataFrame({"lat":[lat],"lon":[lon]}))
+
+# ================= Input =================
+
 start_date = st.date_input("📅 วันที่เริ่มต้น",datetime.now().date())
 num_days = st.slider("จำนวนวัน",1,7,1)
-
-st.divider()
-
-# ================= Area =================
-
-st.subheader("📍 ลักษณะพื้นที่")
 
 col1,col2,col3=st.columns(3)
 
 with col1:
-    near_road = st.checkbox("🚗 ใกล้ถนนใหญ่")
+    near_road=st.checkbox("🚗 ใกล้ถนนใหญ่")
 
 with col2:
-    near_factory = st.checkbox("🏭 ใกล้โรงงาน")
+    near_factory=st.checkbox("🏭 ใกล้โรงงาน")
 
 with col3:
-    near_community = st.checkbox("🏘 ใกล้ชุมชน")
+    near_community=st.checkbox("🏘 ใกล้ชุมชน")
 
 factory_direction = st.selectbox(
 "🏭 โรงงานอยู่ทิศอะไรจากจุดตรวจ",
@@ -57,12 +54,6 @@ factory_direction = st.selectbox(
 station_type = st.selectbox(
 "🏫 ประเภทสถานี",
 ["วัด","โรงเรียน","ชุมชน","โรงพยาบาล","อุตสาหกรรม"]
-)
-
-params = st.multiselect(
-"📌 Parameter",
-["NO","NO2","NOx","SO2","CO","O3","WS","WD","Temp","RH","Pressure"],
-default=["NO","NO2","NOx","SO2","CO","O3","WS","WD","Temp","RH"]
 )
 
 # ================= API =================
@@ -100,7 +91,7 @@ f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude
 
 ref_df=fetch_api(lat,lon,start_date,num_days)
 
-# ================= Wind logic =================
+# ================= Wind =================
 
 def wind_hits_factory(wd,dir):
 
@@ -130,7 +121,6 @@ def simulate(var,hour,row):
 
     ws=row.get("WS",random.uniform(0.5,5))
     wd=row.get("WD",random.uniform(0,360))
-    temp=row.get("Temp",random.uniform(25,35))
 
     if ws<1.5:
         multiplier*=1.3
@@ -138,7 +128,7 @@ def simulate(var,hour,row):
     if ws>5:
         multiplier*=0.8
 
-    if near_road and var in ["NO","NO2","CO"]:
+    if near_road and var in ["NO2","CO"]:
         multiplier*=random.uniform(1.2,1.5)
 
     if near_community and var in ["NO2","CO"]:
@@ -146,11 +136,10 @@ def simulate(var,hour,row):
 
     if near_factory and wind_hits_factory(wd,factory_direction):
         if var in ["SO2","NO2"]:
-            multiplier*=random.uniform(1.4,2.0)
+            multiplier*=random.uniform(1.4,2)
 
     if hour in range(7,10) or hour in range(16,20):
-        if var in ["NO","NO2","CO"]:
-            multiplier*=random.uniform(1.2,1.6)
+        multiplier*=1.3
 
     station_factor={
 "วัด":0.85,
@@ -165,21 +154,17 @@ def simulate(var,hour,row):
     ref=row.get(f"{var}_ref")
 
     if ref is None or pd.isna(ref):
-        ref=row.get(var)
-
-    if ref is None or pd.isna(ref):
         ref=random.uniform(5,20)
 
-    return round(float(ref)*multiplier,2)
+    return round(ref*multiplier,2)
 
 # ================= Generate =================
 
-if st.button("📊 Generate Data"):
+if st.button("🚀 Generate Simulation"):
 
     progress=st.progress(0)
 
     rows=[]
-
     total=num_days*24
     step=0
 
@@ -198,20 +183,10 @@ if st.button("📊 Generate Data"):
 
             r=match.iloc[0]
 
-            row={"Date":date,"Time":f"{h:02d}:00"}
+            row={"Date":date,"Hour":h}
 
-            for p in params:
-
-                if p=="NOx":
-                    continue
-
-                try:
-                    row[p]=simulate(p,h,r)
-                except:
-                    row[p]=None
-
-            if "NOx" in params:
-                row["NOx"]=round((row.get("NO",0)+row.get("NO2",0)),2)
+            for p in ["NO2","SO2","CO","O3"]:
+                row[p]=simulate(p,h,r)
 
             rows.append(row)
 
@@ -220,20 +195,21 @@ if st.button("📊 Generate Data"):
 
     df=pd.DataFrame(rows)
 
-    st.success("✅ Generated")
+    st.subheader("📊 Pollution Chart")
 
+    st.line_chart(df.set_index("Hour")[["NO2","SO2","CO","O3"]])
+
+    st.subheader("📄 Data Preview")
     st.dataframe(df.head(48))
 
     buf=BytesIO()
 
     with pd.ExcelWriter(buf,engine="openpyxl") as writer:
 
-        df.to_excel(writer,index=False,sheet_name="Simulated")
-
-        ref_df.to_excel(writer,index=False,sheet_name="Reference")
+        df.to_excel(writer,index=False)
 
     st.download_button(
 "📥 Download Excel",
 buf.getvalue(),
-file_name="AirCheckTH_v3.xlsx"
+file_name="AirCheckTH_v4.xlsx"
 )
