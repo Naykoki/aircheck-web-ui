@@ -2,59 +2,118 @@ import streamlit as st
 import pandas as pd
 import random
 import requests
+import math
 from datetime import datetime, timedelta
 from io import BytesIO
+import folium
+from streamlit_folium import st_folium
 
-st.set_page_config(page_title="AirCheck TH Dashboard",layout="wide")
+st.set_page_config(page_title="AirCheck TH", layout="wide")
 
-st.title("🌏 AirCheck TH Dashboard")
+st.title("🌏 AirCheck TH – Air Quality Simulation Platform")
 
-# ================= Province =================
+# ================= Sidebar =================
 
-province = st.selectbox("📍 จังหวัด",[
-"กรุงเทพมหานคร","ระยอง","อยุธยา","สระบุรี",
-"ราชบุรี","ชลบุรี","จันทบุรี"
-])
+st.sidebar.header("⚙ Simulation Settings")
 
-coords={
-"กรุงเทพมหานคร":(13.7563,100.5018),
-"ระยอง":(12.6814,101.2770),
-"อยุธยา":(14.3532,100.5689),
-"สระบุรี":(14.5289,100.9105),
-"ราชบุรี":(13.5360,99.8171),
-"ชลบุรี":(13.3611,100.9847),
-"จันทบุรี":(12.6112,102.1035)
-}
+start_date = st.sidebar.date_input("Start Date", datetime.now().date())
+num_days = st.sidebar.slider("Days",1,7,1)
 
-lat,lon=coords[province]
+near_road = st.sidebar.checkbox("Near Major Road")
+near_community = st.sidebar.checkbox("Near Community")
 
-st.map(pd.DataFrame({"lat":[lat],"lon":[lon]}))
-
-# ================= Input =================
-
-start_date = st.date_input("📅 วันที่เริ่มต้น",datetime.now().date())
-num_days = st.slider("จำนวนวัน",1,7,1)
-
-col1,col2,col3=st.columns(3)
-
-with col1:
-    near_road=st.checkbox("🚗 ใกล้ถนนใหญ่")
-
-with col2:
-    near_factory=st.checkbox("🏭 ใกล้โรงงาน")
-
-with col3:
-    near_community=st.checkbox("🏘 ใกล้ชุมชน")
-
-factory_direction = st.selectbox(
-"🏭 โรงงานอยู่ทิศอะไรจากจุดตรวจ",
-["N","NE","E","SE","S","SW","W","NW"]
+station_type = st.sidebar.selectbox(
+"Station Type",
+["Temple","School","Community","Hospital","Industrial"]
 )
 
-station_type = st.selectbox(
-"🏫 ประเภทสถานี",
-["วัด","โรงเรียน","ชุมชน","โรงพยาบาล","อุตสาหกรรม"]
-)
+# ================= Map =================
+
+st.subheader("🗺 Select Locations")
+
+st.write("Click map to choose **Station** and **Factory**")
+
+map_center = [13.75,100.50]
+
+m = folium.Map(location=map_center, zoom_start=10)
+
+map_data = st_folium(m,height=500,width=900)
+
+station = None
+factory = None
+
+if map_data["last_clicked"]:
+
+    lat = map_data["last_clicked"]["lat"]
+    lon = map_data["last_clicked"]["lng"]
+
+    if "station_set" not in st.session_state:
+        st.session_state.station = (lat,lon)
+        st.session_state.station_set = True
+        st.success("Station location set")
+
+    else:
+        st.session_state.factory = (lat,lon)
+        st.success("Factory location set")
+
+station = st.session_state.get("station")
+factory = st.session_state.get("factory")
+
+if station:
+    st.write("Station:",station)
+
+if factory:
+    st.write("Factory:",factory)
+
+# ================= Distance + Bearing =================
+
+def calculate_bearing(lat1, lon1, lat2, lon2):
+
+    lat1 = math.radians(lat1)
+    lat2 = math.radians(lat2)
+
+    diffLong = math.radians(lon2 - lon1)
+
+    x = math.sin(diffLong) * math.cos(lat2)
+    y = math.cos(lat1) * math.sin(lat2) - (
+        math.sin(lat1) * math.cos(lat2) * math.cos(diffLong)
+    )
+
+    bearing = math.degrees(math.atan2(x, y))
+    bearing = (bearing + 360) % 360
+
+    return bearing
+
+def distance_km(lat1,lon1,lat2,lon2):
+
+    R=6371
+
+    dlat=math.radians(lat2-lat1)
+    dlon=math.radians(lon2-lon1)
+
+    a=math.sin(dlat/2)**2+math.cos(math.radians(lat1))*math.cos(math.radians(lat2))*math.sin(dlon/2)**2
+
+    c=2*math.atan2(math.sqrt(a),math.sqrt(1-a))
+
+    return R*c
+
+bearing=None
+distance=None
+
+if station and factory:
+
+    bearing=calculate_bearing(
+        station[0],station[1],
+        factory[0],factory[1]
+    )
+
+    distance=distance_km(
+        station[0],station[1],
+        factory[0],factory[1]
+    )
+
+    st.info(f"Factory direction: {bearing:.1f}°")
+    st.info(f"Distance: {distance:.2f} km")
 
 # ================= API =================
 
@@ -72,46 +131,22 @@ f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&hourly=t
 f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={lon}&hourly=carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone&start_date={sd}&end_date={ed}&timezone=Asia/Bangkok"
 ).json()
 
-    w=weather.get("hourly",{})
-    a=air.get("hourly",{})
+    w=weather["hourly"]
+    a=air["hourly"]
 
     df=pd.DataFrame({
-"time":pd.to_datetime(w.get("time",[])),
-"Temp":w.get("temperature_2m",[]),
-"RH":w.get("relative_humidity_2m",[]),
-"WS":w.get("wind_speed_10m",[]),
-"WD":w.get("wind_direction_10m",[]),
-"NO2_ref":a.get("nitrogen_dioxide",[]),
-"SO2_ref":a.get("sulphur_dioxide",[]),
-"CO_ref":a.get("carbon_monoxide",[]),
-"O3_ref":a.get("ozone",[])
+"time":pd.to_datetime(w["time"]),
+"Temp":w["temperature_2m"],
+"RH":w["relative_humidity_2m"],
+"WS":w["wind_speed_10m"],
+"WD":w["wind_direction_10m"],
+"NO2_ref":a["nitrogen_dioxide"],
+"SO2_ref":a["sulphur_dioxide"],
+"CO_ref":a["carbon_monoxide"],
+"O3_ref":a["ozone"]
 })
 
     return df
-
-ref_df=fetch_api(lat,lon,start_date,num_days)
-
-# ================= Wind =================
-
-def wind_hits_factory(wd,dir):
-
-    sector={
-"N":(337.5,22.5),
-"NE":(22.5,67.5),
-"E":(67.5,112.5),
-"SE":(112.5,157.5),
-"S":(157.5,202.5),
-"SW":(202.5,247.5),
-"W":(247.5,292.5),
-"NW":(292.5,337.5)
-}
-
-    low,high=sector[dir]
-
-    if low<high:
-        return low<=wd<high
-    else:
-        return wd>=low or wd<high
 
 # ================= Simulation =================
 
@@ -119,54 +154,49 @@ def simulate(var,hour,row):
 
     multiplier=1.0
 
-    ws=row.get("WS",random.uniform(0.5,5))
-    wd=row.get("WD",random.uniform(0,360))
+    ws=row["WS"]
+    wd=row["WD"]
 
     if ws<1.5:
         multiplier*=1.3
 
-    if ws>5:
-        multiplier*=0.8
-
     if near_road and var in ["NO2","CO"]:
-        multiplier*=random.uniform(1.2,1.5)
+        multiplier*=1.4
 
     if near_community and var in ["NO2","CO"]:
-        multiplier*=random.uniform(1.1,1.3)
+        multiplier*=1.2
 
-    if near_factory and wind_hits_factory(wd,factory_direction):
-        if var in ["SO2","NO2"]:
-            multiplier*=random.uniform(1.4,2)
+    if bearing and abs(wd-bearing)<20:
+        multiplier*=1.6
 
     if hour in range(7,10) or hour in range(16,20):
         multiplier*=1.3
 
     station_factor={
-"วัด":0.85,
-"โรงพยาบาล":0.9,
-"ชุมชน":1.0,
-"โรงเรียน":1.05,
-"อุตสาหกรรม":1.2
+"Temple":0.85,
+"Hospital":0.9,
+"Community":1.0,
+"School":1.05,
+"Industrial":1.2
 }
 
     multiplier*=station_factor[station_type]
 
-    ref=row.get(f"{var}_ref")
-
-    if ref is None or pd.isna(ref):
-        ref=random.uniform(5,20)
+    ref=row.get(f"{var}_ref",random.uniform(5,20))
 
     return round(ref*multiplier,2)
 
 # ================= Generate =================
 
-if st.button("🚀 Generate Simulation"):
+if st.button("🚀 Run Simulation"):
 
-    progress=st.progress(0)
+    if not station:
+        st.warning("Please select station on map")
+        st.stop()
+
+    ref_df=fetch_api(station[0],station[1],start_date,num_days)
 
     rows=[]
-    total=num_days*24
-    step=0
 
     for i in range(num_days):
 
@@ -183,33 +213,30 @@ if st.button("🚀 Generate Simulation"):
 
             r=match.iloc[0]
 
-            row={"Date":date,"Hour":h}
-
-            for p in ["NO2","SO2","CO","O3"]:
-                row[p]=simulate(p,h,r)
-
-            rows.append(row)
-
-            step+=1
-            progress.progress(step/total)
+            rows.append({
+"Date":date,
+"Hour":h,
+"NO2":simulate("NO2",h,r),
+"SO2":simulate("SO2",h,r),
+"CO":simulate("CO",h,r),
+"O3":simulate("O3",h,r)
+})
 
     df=pd.DataFrame(rows)
 
-    st.subheader("📊 Pollution Chart")
+    st.subheader("📊 Pollution Dashboard")
 
     st.line_chart(df.set_index("Hour")[["NO2","SO2","CO","O3"]])
 
-    st.subheader("📄 Data Preview")
     st.dataframe(df.head(48))
 
     buf=BytesIO()
 
     with pd.ExcelWriter(buf,engine="openpyxl") as writer:
-
         df.to_excel(writer,index=False)
 
     st.download_button(
 "📥 Download Excel",
 buf.getvalue(),
-file_name="AirCheckTH_v4.xlsx"
+file_name="AirCheckTH_v5.xlsx"
 )
