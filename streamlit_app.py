@@ -10,7 +10,7 @@ from streamlit_folium import st_folium
 
 st.set_page_config(page_title="AirCheck TH", layout="wide")
 
-st.title("🌏 AirCheck TH – Air Quality Simulation Platform")
+st.title("🌏 AirCheck TH – ระบบจำลองคุณภาพอากาศ")
 
 # ================= จังหวัด =================
 
@@ -24,7 +24,7 @@ province_coords = {
 "จันทบุรี":(12.6112,102.1035)
 }
 
-# ================= SIDEBAR =================
+# ================= Sidebar =================
 
 st.sidebar.header("⚙ การตั้งค่า")
 
@@ -48,9 +48,18 @@ station_type = st.sidebar.selectbox(
 ["วัด","โรงเรียน","ชุมชน","โรงพยาบาล","อุตสาหกรรม"]
 )
 
-# ================= SEARCH =================
+params = st.sidebar.multiselect(
+"📊 Parameter",
+["NO","NO2","NOx","SO2","CO","O3","WS","WD","Temp","RH","Pressure"],
+default=["NO","NO2","NOx","SO2","CO","O3","WS","WD","Temp","RH"]
+)
 
-st.subheader("🔎 ค้นหาสถานที่")
+pin_mode = st.sidebar.radio(
+"📌 โหมดปักหมุด",
+["ปักจุดตรวจวัด","ปักโรงงาน"]
+)
+
+# ================= SEARCH =================
 
 def search_location(query):
 
@@ -58,14 +67,28 @@ def search_location(query):
 
     params={"q":query,"limit":1}
 
-    res=requests.get(url,params=params).json()
+    try:
 
-    if res["features"]:
-        lon,lat=res["features"][0]["geometry"]["coordinates"]
-        return lat,lon
+        res=requests.get(url,params=params,timeout=10)
+
+        if res.status_code!=200:
+            return None
+
+        data=res.json()
+
+        if "features" in data and len(data["features"])>0:
+
+            lon,lat=data["features"][0]["geometry"]["coordinates"]
+
+            return lat,lon
+
+    except:
+        return None
 
     return None
 
+
+st.subheader("🔎 ค้นหาสถานที่")
 
 col1,col2 = st.columns(2)
 
@@ -80,6 +103,8 @@ with col1:
         if loc:
             st.session_state.station = loc
             st.rerun()
+        else:
+            st.warning("ไม่พบสถานที่")
 
 with col2:
 
@@ -92,28 +117,27 @@ with col2:
         if loc:
 
             if "factories" not in st.session_state:
-                st.session_state.factories = []
+                st.session_state.factories=[]
 
             st.session_state.factories.append(loc)
 
             st.rerun()
 
-# ================= MAP =================
+        else:
+            st.warning("ไม่พบสถานที่")
+
+# ================= Map =================
 
 if "station" in st.session_state:
     map_center = st.session_state.station
 else:
     map_center = [center_lat,center_lon]
 
-st.subheader("🗺 แผนที่")
-
 m = folium.Map(
     location=map_center,
     zoom_start=12,
     tiles="CartoDB positron"
 )
-
-# station marker
 
 if "station" in st.session_state:
 
@@ -122,8 +146,6 @@ if "station" in st.session_state:
         tooltip="จุดตรวจวัด",
         icon=folium.Icon(color="green")
     ).add_to(m)
-
-# factory markers
 
 if "factories" in st.session_state:
 
@@ -137,20 +159,20 @@ if "factories" in st.session_state:
 
 map_data = st_folium(m,height=500,width=1200)
 
-# click to add
+# click map
 
 if map_data["last_clicked"]:
 
     lat = map_data["last_clicked"]["lat"]
     lon = map_data["last_clicked"]["lng"]
 
-    if "station" not in st.session_state:
-        st.session_state.station = (lat,lon)
+    if pin_mode=="ปักจุดตรวจวัด":
+        st.session_state.station=(lat,lon)
 
     else:
 
         if "factories" not in st.session_state:
-            st.session_state.factories = []
+            st.session_state.factories=[]
 
         st.session_state.factories.append((lat,lon))
 
@@ -169,8 +191,8 @@ def distance_km(lat1,lon1,lat2,lon2):
 
     return R*c
 
-station = st.session_state.get("station")
 
+station = st.session_state.get("station")
 factories = st.session_state.get("factories",[])
 
 if station and factories:
@@ -196,11 +218,13 @@ def fetch_api(lat,lon,start_date,num_days):
     ed=(start_date+timedelta(days=num_days-1)).strftime("%Y-%m-%d")
 
     weather=requests.get(
-f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&hourly=wind_speed_10m,wind_direction_10m&start_date={sd}&end_date={ed}&timezone=Asia/Bangkok"
+f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m&start_date={sd}&end_date={ed}&timezone=Asia/Bangkok",
+timeout=10
 ).json()
 
     air=requests.get(
-f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={lon}&hourly=carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone&start_date={sd}&end_date={ed}&timezone=Asia/Bangkok"
+f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={lon}&hourly=carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone&start_date={sd}&end_date={ed}&timezone=Asia/Bangkok",
+timeout=10
 ).json()
 
     w=weather["hourly"]
@@ -208,6 +232,8 @@ f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude
 
     df=pd.DataFrame({
 "time":pd.to_datetime(w["time"]),
+"Temp":w["temperature_2m"],
+"RH":w["relative_humidity_2m"],
 "WS":w["wind_speed_10m"],
 "WD":w["wind_direction_10m"],
 "NO2_ref":a["nitrogen_dioxide"],
@@ -217,6 +243,41 @@ f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude
 })
 
     return df
+
+# ================= Simulation =================
+
+def simulate(var,hour,row):
+
+    multiplier=1
+
+    ws=row.get("WS",random.uniform(0.5,5))
+    wd=row.get("WD",random.uniform(0,360))
+
+    if ws<1.5:
+        multiplier*=1.3
+
+    if near_road and var in ["NO","NO2","CO"]:
+        multiplier*=1.4
+
+    if near_community and var in ["NO2","CO"]:
+        multiplier*=1.2
+
+    if hour in range(7,10) or hour in range(16,20):
+        multiplier*=1.3
+
+    station_factor={
+"วัด":0.85,
+"โรงเรียน":1.05,
+"ชุมชน":1.0,
+"โรงพยาบาล":0.9,
+"อุตสาหกรรม":1.2
+}
+
+    multiplier*=station_factor[station_type]
+
+    base=row.get(f"{var}_ref",random.uniform(5,20))
+
+    return round(base*multiplier,2)
 
 # ================= RUN =================
 
@@ -248,10 +309,10 @@ if st.button("🚀 เริ่มจำลองข้อมูล"):
             rows.append({
 "Date":date,
 "Hour":h,
-"NO2":r["NO2_ref"]*random.uniform(0.8,1.3),
-"SO2":r["SO2_ref"]*random.uniform(0.8,1.3),
-"CO":r["CO_ref"]*random.uniform(0.8,1.3),
-"O3":r["O3_ref"]*random.uniform(0.8,1.3)
+"NO2":simulate("NO2",h,r),
+"SO2":simulate("SO2",h,r),
+"CO":simulate("CO",h,r),
+"O3":simulate("O3",h,r)
 })
 
     df=pd.DataFrame(rows)
