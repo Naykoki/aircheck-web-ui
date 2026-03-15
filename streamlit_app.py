@@ -43,7 +43,7 @@ datetime.now().date()
 
 num_days = st.sidebar.slider(
 "จำนวนวัน",
-1,7,1
+1,8,1
 )
 
 near_road = st.sidebar.checkbox("🚗 ใกล้ถนนใหญ่")
