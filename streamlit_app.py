@@ -123,19 +123,52 @@ if map_data and map_data.get("last_clicked"):
 
 @st.cache_data
 def fetch_api(lat, lon, start_date, num_days):
+if ref_df.empty or len(ref_df) < 10:
+    st.warning("ข้อมูลจาก API ไม่พอ → ใช้ข้อมูลสุ่มแทน")
+
+    ref_df = pd.DataFrame({
+        "time": pd.date_range(start=start_date, periods=24*num_days, freq="H"),
+        "Temp": [30]*24*num_days,
+        "RH": [70]*24*num_days,
+        "WS": [2]*24*num_days,
+        "WD": [180]*24*num_days,
+        "NO2_ref": [20]*24*num_days,
+        "SO2_ref": [5]*24*num_days,
+        "CO_ref": [200]*24*num_days,
+        "O3_ref": [30]*24*num_days
+    })
+    sd = start_date.strftime("%Y-%m-%d")
+    ed = (start_date + timedelta(days=num_days-1)).strftime("%Y-%m-%d")
+
+    headers = {
+        "User-Agent": "Mozilla/5.0"
+    }
+
     try:
-        sd = start_date.strftime("%Y-%m-%d")
-        ed = (start_date + timedelta(days=num_days-1)).strftime("%Y-%m-%d")
-
-        weather = requests.get(
+        weather_res = requests.get(
             f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m&start_date={sd}&end_date={ed}&timezone=Asia/Bangkok",
-            timeout=10
-        ).json()
+            headers=headers,
+            timeout=15
+        )
 
-        air = requests.get(
+        air_res = requests.get(
             f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={lon}&hourly=carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone&start_date={sd}&end_date={ed}&timezone=Asia/Bangkok",
-            timeout=10
-        ).json()
+            headers=headers,
+            timeout=15
+        )
+
+        # ❗ เช็คก่อน
+        if weather_res.status_code != 200 or air_res.status_code != 200:
+            st.error("API ตอบกลับผิดปกติ")
+            return pd.DataFrame()
+
+        weather = weather_res.json()
+        air = air_res.json()
+
+        # ❗ กัน key หาย
+        if "hourly" not in weather or "hourly" not in air:
+            st.error("API ไม่มีข้อมูล hourly")
+            return pd.DataFrame()
 
         w = weather["hourly"]
         a = air["hourly"]
@@ -146,16 +179,16 @@ def fetch_api(lat, lon, start_date, num_days):
             "RH": w["relative_humidity_2m"],
             "WS": w["wind_speed_10m"],
             "WD": w["wind_direction_10m"],
-            "NO2_ref": a["nitrogen_dioxide"],
-            "SO2_ref": a["sulphur_dioxide"],
-            "CO_ref": a["carbon_monoxide"],
-            "O3_ref": a["ozone"]
+            "NO2_ref": a.get("nitrogen_dioxide", []),
+            "SO2_ref": a.get("sulphur_dioxide", []),
+            "CO_ref": a.get("carbon_monoxide", []),
+            "O3_ref": a.get("ozone", [])
         })
 
         return df
 
     except Exception as e:
-        st.error("API โหลดข้อมูลไม่ได้")
+        st.error(f"โหลด API ไม่ได้: {e}")
         return pd.DataFrame()
 
 # ---------------- Simulation ----------------
