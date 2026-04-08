@@ -9,7 +9,7 @@ from streamlit_folium import st_folium
 # =========================
 # CONFIG
 # =========================
-OPENWEATHER_API_KEY = "YOUR_API_KEY"
+OPENWEATHER_API_KEY = "83381fd2dfb9760f22710f0a419897c0"
 LAT = 13.7563
 LON = 100.5018
 
