@@ -9,7 +9,7 @@ import folium
 from streamlit_folium import st_folium
 
 # 🔑 ใส่ API KEY (สมัครฟรี)
-OPENWEATHER_API_KEY = "YOUR_API_KEY"
+OPENWEATHER_API_KEY = "83381fd2dfb9760f22710f0a419897c0"
 
 st.set_page_config(page_title="AirCheck TH", layout="wide")
 
