@@ -11,9 +11,9 @@ from streamlit_folium import st_folium
 st.set_page_config(page_title="AirCheck TH", layout="wide")
 
 st.title("🌏 AirCheck TH")
-st.caption("ระบบจำลองคุณภาพอากาศ")
+st.caption("ระบบจำลองคุณภาพอากาศ (Hybrid: API + Simulation)")
 
-# ---------------- SESSION SAFE ----------------
+# ---------------- SESSION ----------------
 if "factories" not in st.session_state:
     st.session_state.factories = []
 
@@ -34,68 +34,44 @@ province_coords = {
 # ---------------- Sidebar ----------------
 st.sidebar.header("⚙ การตั้งค่า")
 
-province = st.sidebar.selectbox("📍 เลือกจังหวัด", list(province_coords.keys()))
+province = st.sidebar.selectbox("📍 จังหวัด", list(province_coords.keys()))
 center_lat,center_lon = province_coords[province]
 
-start_date = st.sidebar.date_input("📅 วันที่เริ่มต้น", datetime.now().date())
-num_days = st.sidebar.slider("จำนวนวัน", 1, 8, 1)
+start_date = st.sidebar.date_input("📅 วันที่เริ่ม", datetime.now().date())
+num_days = st.sidebar.slider("จำนวนวัน",1,7,1)
+
+near_road = st.sidebar.checkbox("🚗 ใกล้ถนน")
+near_factory = st.sidebar.checkbox("🏭 ใกล้โรงงาน")
+near_community = st.sidebar.checkbox("🏘 ใกล้ชุมชน")
 
 pin_mode = st.sidebar.radio("📍 โหมดปักหมุด",["จุดตรวจวัด","โรงงาน"])
-
-# ---------------- ลบ ----------------
-if st.sidebar.button("ลบจุดตรวจวัด"):
-    st.session_state.station = None
-
-if st.sidebar.button("ลบโรงงานทั้งหมด"):
-    st.session_state.factories = []
-
-# ---------------- Distance ----------------
-def distance_km(lat1,lon1,lat2,lon2):
-    R=6371
-    dlat=math.radians(lat2-lat1)
-    dlon=math.radians(lon2-lon1)
-    a=math.sin(dlat/2)**2+math.cos(math.radians(lat1))*math.cos(math.radians(lat2))*math.sin(dlon/2)**2
-    return R*(2*math.atan2(math.sqrt(a),math.sqrt(1-a)))
 
 # ---------------- MAP ----------------
 map_center = st.session_state.station if st.session_state.station else [center_lat,center_lon]
 
-m = folium.Map(
-    location=map_center,
-    zoom_start=12,
-    control_scale=True,
-    tiles="OpenStreetMap"
-)
+m = folium.Map(location=map_center, zoom_start=12)
 
-# 🌍 ดาวเทียม
+# ดาวเทียม
 folium.TileLayer(
     tiles="https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}",
     name="ดาวเทียม",
     attr="Google"
 ).add_to(m)
 
-# 🗺 แผนที่ปกติ
 folium.TileLayer("OpenStreetMap", name="แผนที่").add_to(m)
-
 folium.LayerControl().add_to(m)
 
 # station
 if st.session_state.station:
-    folium.Marker(st.session_state.station,
-                  tooltip="🟢 จุดตรวจวัด",
+    folium.Marker(st.session_state.station, tooltip="จุดตรวจวัด",
                   icon=folium.Icon(color="green")).add_to(m)
 
 # factories
 for i,f in enumerate(st.session_state.factories):
-    folium.Marker(f,
-                  tooltip=f"🔴 โรงงาน {i+1}",
+    folium.Marker(f, tooltip=f"โรงงาน {i+1}",
                   icon=folium.Icon(color="red")).add_to(m)
 
-    if st.session_state.station:
-        dist = distance_km(st.session_state.station[0],st.session_state.station[1],f[0],f[1])
-        folium.PolyLine([st.session_state.station,f], tooltip=f"{dist:.2f} km").add_to(m)
-
-map_data = st_folium(m,height=520,width=1200)
+map_data = st_folium(m,height=500)
 
 # click map
 if map_data and map_data.get("last_clicked"):
@@ -148,47 +124,61 @@ def fetch_api(lat, lon, start_date, num_days):
         a = air["hourly"]
 
         df = pd.DataFrame({
-            "time": pd.to_datetime(w.get("time", [])),
-            "Temp": w.get("temperature_2m", []),
-            "RH": w.get("relative_humidity_2m", []),
-            "WS": w.get("wind_speed_10m", []),
-            "WD": w.get("wind_direction_10m", []),
-            "NO2_ref": a.get("nitrogen_dioxide", []),
-            "SO2_ref": a.get("sulphur_dioxide", []),
-            "CO_ref": a.get("carbon_monoxide", []),
-            "O3_ref": a.get("ozone", [])
+            "time": pd.to_datetime(w["time"]),
+            "Temp": w["temperature_2m"],
+            "RH": w["relative_humidity_2m"],
+            "WS": w["wind_speed_10m"],
+            "WD": w["wind_direction_10m"],
+            "NO2_ref": a["nitrogen_dioxide"],
+            "SO2_ref": a["sulphur_dioxide"],
+            "CO_ref": a["carbon_monoxide"],
+            "O3_ref": a["ozone"]
         })
 
-        return df if not df.empty else None
+        return df
 
     except:
         return None
 
 # ---------------- SIM ----------------
 def simulate(base):
-    return base * random.uniform(0.8,1.3)
+    if base is None:
+        base = random.uniform(10,50)
+    return base * random.uniform(0.85,1.25)
+
+def env_factor(val, pol):
+    factor = 1.0
+    if near_road and pol in ["NO","NO2","CO"]: factor += 0.3
+    if near_factory and pol in ["SO2","NO2"]: factor += 0.4
+    if near_community and pol in ["CO","NO"]: factor += 0.2
+    return val * factor
+
+def air_status(no2):
+    if no2 < 20: return "ดี 🟢"
+    elif no2 < 40: return "ปานกลาง 🟡"
+    else: return "เริ่มมีผลกระทบ 🔴"
 
 # ---------------- RUN ----------------
-if st.button("🚀 เริ่มจำลองข้อมูล"):
+if st.button("🚀 เริ่มจำลอง"):
 
     if not st.session_state.station:
         st.warning("กรุณาปักจุดก่อน")
         st.stop()
 
-    station = st.session_state.station
+    lat,lon = st.session_state.station
 
-    ref_df = fetch_api(station[0],station[1],start_date,num_days)
+    ref_df = fetch_api(lat,lon,start_date,num_days)
 
     # fallback
     if ref_df is None:
-        st.warning("⚠ API ล่ม → ใช้ข้อมูลจำลอง")
+        st.warning("⚠ API ไม่พร้อม → ใช้ข้อมูลจำลอง")
 
         rows=[]
         for i in range(num_days):
             date=start_date+timedelta(days=i)
             for h in range(24):
                 rows.append({
-                    "time": datetime.combine(date, datetime.min.time()) + timedelta(hours=h),
+                    "time": datetime.combine(date, datetime.min.time())+timedelta(hours=h),
                     "Temp": random.uniform(25,35),
                     "RH": random.uniform(50,90),
                     "WS": random.uniform(0,10),
@@ -201,35 +191,51 @@ if st.button("🚀 เริ่มจำลองข้อมูล"):
         ref_df = pd.DataFrame(rows)
 
     # กันข้อมูลไม่ครบ
-    total = num_days * 24
+    total = num_days*24
     if len(ref_df) < total:
-        for i in range(total - len(ref_df)):
+        for _ in range(total-len(ref_df)):
             ref_df.loc[len(ref_df)] = ref_df.iloc[-1]
 
+    # simulate
     rows=[]
     for i in range(num_days):
         date=start_date+timedelta(days=i)
-        for h in range(24):
 
-            r = ref_df.iloc[i*24 + h]
+        for h in range(24):
+            r = ref_df.iloc[i*24+h]
+
+            no2 = env_factor(simulate(r["NO2_ref"]),"NO2")
+            so2 = env_factor(simulate(r["SO2_ref"]),"SO2")
+            co  = env_factor(simulate(r["CO_ref"]),"CO")
 
             rows.append({
                 "Date":date,
                 "Hour":h,
-                "NO":random.uniform(5,20),
-                "NO2":simulate(r["NO2_ref"]),
-                "NOx":simulate(r["NO2_ref"]+random.uniform(2,5)),
-                "SO2":simulate(r["SO2_ref"]),
-                "CO":simulate(r["CO_ref"]),
+                "NO":env_factor(random.uniform(5,20),"NO"),
+                "NO2":no2,
+                "NOx":no2+random.uniform(2,5),
+                "SO2":so2,
+                "CO":co,
                 "O3":simulate(r["O3_ref"]),
-                "WS":r["WS"],
-                "WD":r["WD"],
                 "Temp":r["Temp"],
                 "RH":r["RH"],
+                "WS":r["WS"],
+                "WD":r["WD"],
                 "Pressure":1010+random.uniform(-5,5)
             })
 
-    df=pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    df["สถานะ"] = df["NO2"].apply(air_status)
+
+    # ---------------- UI ----------------
+    st.subheader("📌 สถานการณ์พื้นที่")
+
+    info=[]
+    if near_road: info.append("ใกล้ถนน")
+    if near_factory: info.append("ใกล้โรงงาน")
+    if near_community: info.append("ใกล้ชุมชน")
+
+    st.info(" | ".join(info) if info else "พื้นที่ทั่วไป")
 
     st.subheader("📊 Dashboard")
     st.line_chart(df.set_index("Hour")[["NO2","SO2","CO","O3"]])
@@ -237,9 +243,13 @@ if st.button("🚀 เริ่มจำลองข้อมูล"):
     st.subheader("📄 ตารางข้อมูล")
     st.dataframe(df)
 
+    st.subheader("📡 ข้อมูลอ้างอิง")
+    st.dataframe(ref_df.head(50))
+
+    # export
     buf=BytesIO()
     with pd.ExcelWriter(buf,engine="openpyxl") as writer:
-        df.to_excel(writer,index=False)
-        ref_df.to_excel(writer,index=False,sheet_name="ref")
+        df.to_excel(writer,index=False,sheet_name="Simulation")
+        ref_df.to_excel(writer,index=False,sheet_name="Reference")
 
     st.download_button("📥 ดาวน์โหลด Excel",buf.getvalue(),"AirCheckTH.xlsx")
