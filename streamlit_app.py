@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import random
 import requests
-import math
+import time
 from datetime import datetime, timedelta
 from io import BytesIO
 import folium
@@ -86,54 +86,70 @@ if map_data and map_data.get("last_clicked"):
     st.rerun()
 
 # ---------------- API ----------------
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=1800)
 def fetch_api(lat, lon, start_date, num_days):
 
     sd = start_date.strftime("%Y-%m-%d")
     ed = (start_date + timedelta(days=num_days-1)).strftime("%Y-%m-%d")
 
+    def safe_request(url, params, retries=3):
+        for i in range(retries):
+            try:
+                res = requests.get(url, params=params, timeout=10)
+                if res.status_code == 200:
+                    return res.json()
+            except Exception as e:
+                print(f"Retry {i+1}:", e)
+            time.sleep(1)
+        return None
+
+    weather = safe_request(
+        "https://api.open-meteo.com/v1/forecast",
+        {
+            "latitude": lat,
+            "longitude": lon,
+            "hourly": "temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m",
+            "start_date": sd,
+            "end_date": ed,
+            "timezone": "Asia/Bangkok"
+        }
+    )
+
+    air = safe_request(
+        "https://air-quality-api.open-meteo.com/v1/air-quality",
+        {
+            "latitude": lat,
+            "longitude": lon,
+            "hourly": "carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone",
+            "start_date": sd,
+            "end_date": ed,
+            "timezone": "Asia/Bangkok"
+        }
+    )
+
+    if not weather or not air:
+        return None
+
     try:
-        weather = requests.get(
-            "https://api.open-meteo.com/v1/forecast",
-            params={
-                "latitude": lat,
-                "longitude": lon,
-                "hourly": "temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m",
-                "start_date": sd,
-                "end_date": ed,
-                "timezone": "Asia/Bangkok"
-            }, timeout=10
-        ).json()
-
-        air = requests.get(
-            "https://air-quality-api.open-meteo.com/v1/air-quality",
-            params={
-                "latitude": lat,
-                "longitude": lon,
-                "hourly": "carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone",
-                "start_date": sd,
-                "end_date": ed,
-                "timezone": "Asia/Bangkok"
-            }, timeout=10
-        ).json()
-
-        if "hourly" not in weather or "hourly" not in air:
-            return None
-
-        w = weather["hourly"]
-        a = air["hourly"]
+        w = weather.get("hourly", {})
+        a = air.get("hourly", {})
 
         df = pd.DataFrame({
-            "time": pd.to_datetime(w["time"]),
-            "Temp": w["temperature_2m"],
-            "RH": w["relative_humidity_2m"],
-            "WS": w["wind_speed_10m"],
-            "WD": w["wind_direction_10m"],
-            "NO2_ref": a["nitrogen_dioxide"],
-            "SO2_ref": a["sulphur_dioxide"],
-            "CO_ref": a["carbon_monoxide"],
-            "O3_ref": a["ozone"]
+            "time": pd.to_datetime(w.get("time", [])),
+            "Temp": w.get("temperature_2m", []),
+            "RH": w.get("relative_humidity_2m", []),
+            "WS": w.get("wind_speed_10m", []),
+            "WD": w.get("wind_direction_10m", []),
+            "NO2_ref": a.get("nitrogen_dioxide", []),
+            "SO2_ref": a.get("sulphur_dioxide", []),
+            "CO_ref": a.get("carbon_monoxide", []),
+            "O3_ref": a.get("ozone", [])
         })
+
+        df = df.dropna().reset_index(drop=True)
+
+        if df.empty:
+            return None
 
         return df
 
@@ -190,13 +206,11 @@ if st.button("🚀 เริ่มจำลอง"):
                 })
         ref_df = pd.DataFrame(rows)
 
-    # กันข้อมูลไม่ครบ
     total = num_days*24
     if len(ref_df) < total:
         for _ in range(total-len(ref_df)):
             ref_df.loc[len(ref_df)] = ref_df.iloc[-1]
 
-    # simulate
     rows=[]
     for i in range(num_days):
         date=start_date+timedelta(days=i)
@@ -246,7 +260,6 @@ if st.button("🚀 เริ่มจำลอง"):
     st.subheader("📡 ข้อมูลอ้างอิง")
     st.dataframe(ref_df.head(50))
 
-    # export
     buf=BytesIO()
     with pd.ExcelWriter(buf,engine="openpyxl") as writer:
         df.to_excel(writer,index=False,sheet_name="Simulation")
