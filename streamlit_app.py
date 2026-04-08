@@ -40,15 +40,7 @@ center_lat,center_lon = province_coords[province]
 start_date = st.sidebar.date_input("📅 วันที่เริ่มต้น", datetime.now().date())
 num_days = st.sidebar.slider("จำนวนวัน", 1, 8, 1)
 
-near_road = st.sidebar.checkbox("🚗 ใกล้ถนนใหญ่")
-near_factory = st.sidebar.checkbox("🏭 ใกล้โรงงาน")
-near_community = st.sidebar.checkbox("🏘 ใกล้ชุมชน")
-
-station_type = st.sidebar.selectbox("🏫 ประเภทสถานี",
-["วัด","โรงเรียน","ชุมชน","โรงพยาบาล","อุตสาหกรรม"])
-
-st.sidebar.subheader("📍 โหมดปักหมุด")
-pin_mode = st.sidebar.radio("เลือกประเภทหมุด",["จุดตรวจวัด","โรงงาน"])
+pin_mode = st.sidebar.radio("📍 โหมดปักหมุด",["จุดตรวจวัด","โรงงาน"])
 
 # ---------------- ลบ ----------------
 if st.sidebar.button("ลบจุดตรวจวัด"):
@@ -68,23 +60,42 @@ def distance_km(lat1,lon1,lat2,lon2):
 # ---------------- MAP ----------------
 map_center = st.session_state.station if st.session_state.station else [center_lat,center_lon]
 
-m = folium.Map(location=map_center, zoom_start=12)
+m = folium.Map(
+    location=map_center,
+    zoom_start=12,
+    control_scale=True,
+    tiles="OpenStreetMap"
+)
+
+# 🌍 ดาวเทียม
+folium.TileLayer(
+    tiles="https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}",
+    name="ดาวเทียม",
+    attr="Google"
+).add_to(m)
+
+# 🗺 แผนที่ปกติ
+folium.TileLayer("OpenStreetMap", name="แผนที่").add_to(m)
+
+folium.LayerControl().add_to(m)
 
 # station
 if st.session_state.station:
-    folium.Marker(st.session_state.station, tooltip="🟢 จุดตรวจวัด",
+    folium.Marker(st.session_state.station,
+                  tooltip="🟢 จุดตรวจวัด",
                   icon=folium.Icon(color="green")).add_to(m)
 
 # factories
 for i,f in enumerate(st.session_state.factories):
-    folium.Marker(f, tooltip=f"🔴 โรงงาน {i+1}",
+    folium.Marker(f,
+                  tooltip=f"🔴 โรงงาน {i+1}",
                   icon=folium.Icon(color="red")).add_to(m)
 
     if st.session_state.station:
         dist = distance_km(st.session_state.station[0],st.session_state.station[1],f[0],f[1])
         folium.PolyLine([st.session_state.station,f], tooltip=f"{dist:.2f} km").add_to(m)
 
-map_data = st_folium(m,height=500)
+map_data = st_folium(m,height=520,width=1200)
 
 # click map
 if map_data and map_data.get("last_clicked"):
@@ -168,7 +179,7 @@ if st.button("🚀 เริ่มจำลองข้อมูล"):
 
     ref_df = fetch_api(station[0],station[1],start_date,num_days)
 
-    # 🔥 fallback ถ้า API พัง
+    # fallback
     if ref_df is None:
         st.warning("⚠ API ล่ม → ใช้ข้อมูลจำลอง")
 
