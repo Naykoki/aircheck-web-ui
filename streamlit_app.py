@@ -259,36 +259,74 @@ if map_data and map_data.get("last_clicked"):
 # ---------------- API ----------------
 
 @st.cache_data
-def fetch_api(lat,lon,start_date,num_days):
+def fetch_api(lat, lon, start_date, num_days):
 
-    sd=start_date.strftime("%Y-%m-%d")
-    ed=(start_date+timedelta(days=num_days-1)).strftime("%Y-%m-%d")
+    sd = start_date.strftime("%Y-%m-%d")
+    ed = (start_date + timedelta(days=num_days-1)).strftime("%Y-%m-%d")
 
-    weather=requests.get(
-f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m&start_date={sd}&end_date={ed}&timezone=Asia/Bangkok"
-).json()
+    try:
+        weather_res = requests.get(
+            f"https://api.open-meteo.com/v1/forecast",
+            params={
+                "latitude": lat,
+                "longitude": lon,
+                "hourly": "temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m",
+                "start_date": sd,
+                "end_date": ed,
+                "timezone": "Asia/Bangkok"
+            },
+            timeout=10
+        )
 
-    air=requests.get(
-f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={lon}&hourly=carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone&start_date={sd}&end_date={ed}&timezone=Asia/Bangkok"
-).json()
+        air_res = requests.get(
+            f"https://air-quality-api.open-meteo.com/v1/air-quality",
+            params={
+                "latitude": lat,
+                "longitude": lon,
+                "hourly": "carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone",
+                "start_date": sd,
+                "end_date": ed,
+                "timezone": "Asia/Bangkok"
+            },
+            timeout=10
+        )
 
-    w=weather["hourly"]
-    a=air["hourly"]
+        weather = weather_res.json()
+        air = air_res.json()
 
-    df=pd.DataFrame({
-"time":pd.to_datetime(w["time"]),
-"Temp":w["temperature_2m"],
-"RH":w["relative_humidity_2m"],
-"WS":w["wind_speed_10m"],
-"WD":w["wind_direction_10m"],
-"NO2_ref":a["nitrogen_dioxide"],
-"SO2_ref":a["sulphur_dioxide"],
-"CO_ref":a["carbon_monoxide"],
-"O3_ref":a["ozone"]
-})
+        # 🔴 เช็คก่อนเลยว่ามีข้อมูลไหม
+        if "hourly" not in weather:
+            st.error(f"❌ Weather API พัง: {weather}")
+            return None
 
-    return df
+        if "hourly" not in air:
+            st.error(f"❌ Air API พัง: {air}")
+            return None
 
+        w = weather["hourly"]
+        a = air["hourly"]
+
+        df = pd.DataFrame({
+            "time": pd.to_datetime(w.get("time", [])),
+            "Temp": w.get("temperature_2m", []),
+            "RH": w.get("relative_humidity_2m", []),
+            "WS": w.get("wind_speed_10m", []),
+            "WD": w.get("wind_direction_10m", []),
+            "NO2_ref": a.get("nitrogen_dioxide", []),
+            "SO2_ref": a.get("sulphur_dioxide", []),
+            "CO_ref": a.get("carbon_monoxide", []),
+            "O3_ref": a.get("ozone", [])
+        })
+
+        if df.empty:
+            st.error("❌ API ส่งข้อมูลว่าง")
+            return None
+
+        return df
+
+    except Exception as e:
+        st.error(f"❌ API ERROR: {e}")
+        return None
 # ---------------- Simulation ----------------
 
 def simulate(base):
