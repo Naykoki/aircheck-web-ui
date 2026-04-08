@@ -123,19 +123,24 @@ if map_data and map_data.get("last_clicked"):
 
 @st.cache_data
 def fetch_api(lat, lon, start_date, num_days):
-    try:
-        sd = start_date.strftime("%Y-%m-%d")
-        ed = (start_date + timedelta(days=num_days-1)).strftime("%Y-%m-%d")
 
+    sd = start_date.strftime("%Y-%m-%d")
+    ed = (start_date + timedelta(days=num_days-1)).strftime("%Y-%m-%d")
+
+    try:
         weather = requests.get(
             f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m&start_date={sd}&end_date={ed}&timezone=Asia/Bangkok",
-            timeout=10
+            timeout=8
         ).json()
 
         air = requests.get(
             f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={lon}&hourly=carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone&start_date={sd}&end_date={ed}&timezone=Asia/Bangkok",
-            timeout=10
+            timeout=8
         ).json()
+
+        # 🔥 เช็คว่า API ได้ข้อมูลจริงไหม
+        if "hourly" not in weather or "hourly" not in air:
+            raise Exception("API invalid")
 
         w = weather["hourly"]
         a = air["hourly"]
@@ -152,11 +157,57 @@ def fetch_api(lat, lon, start_date, num_days):
             "O3_ref": a["ozone"]
         })
 
+        st.success("✅ ใช้ข้อมูลจริงจาก API")
+
         return df
 
-    except Exception as e:
-        st.error("API โหลดข้อมูลไม่ได้")
-        return pd.DataFrame()
+    except:
+        st.warning("⚠ API ใช้งานไม่ได้ → ใช้ข้อมูลจำลองแทน")
+
+        # ---------------- สร้างข้อมูลจำลอง ----------------
+
+        rows = []
+
+        total_hours = num_days * 24
+
+        for i in range(total_hours):
+
+            dt = start_date + timedelta(hours=i)
+            hour = dt.hour
+
+            # 🌡 อุณหภูมิ (ขึ้นกลางวัน ลงกลางคืน)
+            temp = 28 + 5 * math.sin((hour-6)/24 * 2 * math.pi) + random.uniform(-1,1)
+
+            # 💧 ความชื้น
+            rh = 70 + 15 * math.sin((hour)/24 * 2 * math.pi) + random.uniform(-5,5)
+
+            # 🌬 ลม
+            ws = random.uniform(1,5)
+            wd = random.uniform(0,360)
+
+            # 🏭 มลพิษ (พีคเช้า-เย็น)
+            rush_factor = 1 + 0.5 * math.sin((hour-7)/24 * 2 * math.pi)**2
+
+            NO2 = random.uniform(10,30) * rush_factor
+            SO2 = random.uniform(3,10)
+            CO = random.uniform(200,500)
+            O3 = random.uniform(20,60) * (1 - 0.3*rush_factor)
+
+            rows.append({
+                "time": dt,
+                "Temp": temp,
+                "RH": rh,
+                "WS": ws,
+                "WD": wd,
+                "NO2_ref": NO2,
+                "SO2_ref": SO2,
+                "CO_ref": CO,
+                "O3_ref": O3
+            })
+
+        df = pd.DataFrame(rows)
+
+        return df
 
 # ---------------- Simulation ----------------
 
