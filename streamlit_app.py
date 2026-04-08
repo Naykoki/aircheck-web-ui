@@ -123,20 +123,7 @@ if map_data and map_data.get("last_clicked"):
 
 @st.cache_data
 def fetch_api(lat, lon, start_date, num_days):
-if ref_df.empty or len(ref_df) < 10:
-    st.warning("ข้อมูลจาก API ไม่พอ → ใช้ข้อมูลสุ่มแทน")
 
-    ref_df = pd.DataFrame({
-        "time": pd.date_range(start=start_date, periods=24*num_days, freq="H"),
-        "Temp": [30]*24*num_days,
-        "RH": [70]*24*num_days,
-        "WS": [2]*24*num_days,
-        "WD": [180]*24*num_days,
-        "NO2_ref": [20]*24*num_days,
-        "SO2_ref": [5]*24*num_days,
-        "CO_ref": [200]*24*num_days,
-        "O3_ref": [30]*24*num_days
-    })
     sd = start_date.strftime("%Y-%m-%d")
     ed = (start_date + timedelta(days=num_days-1)).strftime("%Y-%m-%d")
 
@@ -204,12 +191,25 @@ if st.button("🚀 เริ่มจำลองข้อมูล"):
         st.warning("กรุณาปักจุดก่อน")
         st.stop()
 
-    ref_df = fetch_api(
-        st.session_state.station[0],
-        st.session_state.station[1],
-        start_date,
-        num_days
-    )
+    station = st.session_state.station
+
+    ref_df = fetch_api(station[0], station[1], start_date, num_days)
+
+    # ✅ วางตรงนี้ (ต้องเยื้อง 4 ช่อง)
+    if ref_df.empty or len(ref_df) < 10:
+        st.warning("ข้อมูลจาก API ไม่พอ → ใช้ข้อมูลสุ่มแทน")
+
+        ref_df = pd.DataFrame({
+            "time": pd.date_range(start=start_date, periods=24*num_days, freq="H"),
+            "Temp": [30]*24*num_days,
+            "RH": [70]*24*num_days,
+            "WS": [2]*24*num_days,
+            "WD": [180]*24*num_days,
+            "NO2_ref": [20]*24*num_days,
+            "SO2_ref": [5]*24*num_days,
+            "CO_ref": [200]*24*num_days,
+            "O3_ref": [30]*24*num_days
+        })
 
     if ref_df.empty:
         st.stop()
