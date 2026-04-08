@@ -1,170 +1,356 @@
 import streamlit as st
 import pandas as pd
-import requests
 import random
-from datetime import datetime
+import requests
+import math
+from datetime import datetime, timedelta
+from io import BytesIO
 import folium
 from streamlit_folium import st_folium
 
-# =========================
-# CONFIG
-# =========================
-OPENWEATHER_API_KEY = "83381fd2dfb9760f22710f0a419897c0"
-LAT = 13.7563
-LON = 100.5018
-
 st.set_page_config(page_title="AirCheck TH", layout="wide")
 
-# =========================
-# STYLE
-# =========================
-st.markdown("""
-<style>
-.big {font-size:28px; font-weight:bold;}
-.good {color:green;}
-.warn {color:orange;}
-.bad {color:red;}
-</style>
-""", unsafe_allow_html=True)
+st.title("🌏 AirCheck TH")
+st.caption("ระบบจำลองคุณภาพอากาศ")
 
+# ---------------- จังหวัด ----------------
 
-# =========================
-# API
-# =========================
-@st.cache_data(ttl=1800)
-def get_openmeteo():
-    url = "https://api.open-meteo.com/v1/forecast"
-    params = {
-        "latitude": LAT,
-        "longitude": LON,
-        "hourly": "temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m",
-        "forecast_days": 1,
-        "timezone": "Asia/Bangkok"
+province_coords = {
+"กรุงเทพมหานคร":(13.7563,100.5018),
+"ระยอง":(12.6814,101.2770),
+"ชลบุรี":(13.3611,100.9847),
+"สระบุรี":(14.5289,100.9105),
+"อยุธยา":(14.3532,100.5689),
+"ราชบุรี":(13.5360,99.8171),
+"จันทบุรี":(12.6112,102.1035)
+}
+
+# ---------------- Sidebar ----------------
+
+st.sidebar.header("⚙ การตั้งค่า")
+
+province = st.sidebar.selectbox(
+"📍 เลือกจังหวัด",
+list(province_coords.keys())
+)
+
+center_lat,center_lon = province_coords[province]
+
+start_date = st.sidebar.date_input(
+"📅 วันที่เริ่มต้น",
+datetime.now().date()
+)
+
+num_days = st.sidebar.slider(
+"จำนวนวัน",
+1,8,1
+)
+
+near_road = st.sidebar.checkbox("🚗 ใกล้ถนนใหญ่")
+near_factory = st.sidebar.checkbox("🏭 ใกล้โรงงาน")
+near_community = st.sidebar.checkbox("🏘 ใกล้ชุมชน")
+
+station_type = st.sidebar.selectbox(
+"🏫 ประเภทสถานี",
+["วัด","โรงเรียน","ชุมชน","โรงพยาบาล","อุตสาหกรรม"]
+)
+
+st.sidebar.subheader("📍 โหมดปักหมุด")
+
+pin_mode = st.sidebar.radio(
+"เลือกประเภทหมุด",
+["จุดตรวจวัด","โรงงาน"]
+)
+
+# ---------------- ปุ่มลบ ----------------
+
+st.sidebar.subheader("🗑 จัดการหมุด")
+
+if st.sidebar.button("ลบจุดตรวจวัด"):
+    if "station" in st.session_state:
+        del st.session_state["station"]
+
+if st.sidebar.button("ลบโรงงานทั้งหมด"):
+    if "factories" in st.session_state:
+        del st.session_state["factories"]
+
+# ---------------- Search ----------------
+
+def search_location(place):
+
+    url="https://nominatim.openstreetmap.org/search"
+
+    params={
+        "q": place + " " + province,
+        "format":"json",
+        "limit":1
     }
+
+    headers={"User-Agent":"aircheck"}
+
     try:
-        r = requests.get(url, params=params, timeout=10)
-        if r.status_code == 200:
-            return r.json()
+
+        res=requests.get(url,params=params,headers=headers).json()
+
+        if res:
+
+            lat=float(res[0]["lat"])
+            lon=float(res[0]["lon"])
+
+            return lat,lon
+
     except:
         pass
+
     return None
 
+st.subheader("🔎 ค้นหาสถานที่")
 
-@st.cache_data(ttl=1800)
-def get_air():
-    url = f"https://api.openweathermap.org/data/2.5/air_pollution?lat={LAT}&lon={LON}&appid={OPENWEATHER_API_KEY}"
-    try:
-        r = requests.get(url, timeout=10)
-        if r.status_code == 200:
-            return r.json()
-    except:
-        pass
-    return None
+col1,col2 = st.columns(2)
 
+with col1:
 
-# =========================
-# BUILD DATA
-# =========================
-def build_ref_df():
-    om = get_openmeteo()
-    air = get_air()
+    station_search = st.text_input("ค้นหาจุดตรวจวัด")
 
-    if not om:
-        return None
+    if st.button("📍 ตั้งเป็นจุดตรวจวัด"):
 
-    hourly = om["hourly"]
-    length = len(hourly["time"])
+        loc = search_location(station_search)
 
-    # air base
-    if air and "list" in air:
-        comp = air["list"][0]["components"]
-        base_no2 = comp.get("no2", 20)
-        base_pm25 = comp.get("pm2_5", 15)
-    else:
-        base_no2, base_pm25 = 20, 15
+        if loc:
+            st.session_state.station = loc
+            st.rerun()
 
-    rows = []
+with col2:
 
-    for i in range(length):
-        factor = 0.8 + (i % 24) / 24
+    factory_search = st.text_input("ค้นหาโรงงาน")
 
-        rows.append({
-            "time": pd.to_datetime(hourly["time"][i]),
-            "Temp": hourly["temperature_2m"][i],
-            "RH": hourly["relative_humidity_2m"][i],
-            "WS": hourly["wind_speed_10m"][i],
-            "WD": hourly["wind_direction_10m"][i],
-            "NO2": base_no2 * factor,
-            "PM2.5": base_pm25 * factor
-        })
+    if st.button("🏭 เพิ่มโรงงาน"):
 
-    return pd.DataFrame(rows)
+        loc = search_location(factory_search)
 
+        if loc:
 
-# =========================
-# STATUS
-# =========================
-def get_status(pm25):
-    if pm25 < 25:
-        return "ดี", "good"
-    elif pm25 < 50:
-        return "ปานกลาง", "warn"
-    else:
-        return "แย่", "bad"
+            if "factories" not in st.session_state:
+                st.session_state.factories=[]
 
+            st.session_state.factories.append(loc)
 
-# =========================
-# UI
-# =========================
-st.title("🌫 AirCheck TH (Realistic Demo)")
+            st.rerun()
 
-ref_df = build_ref_df()
+# ---------------- Distance ----------------
 
-if ref_df is None:
-    st.error("❌ โหลดข้อมูลไม่ได้")
-    st.stop()
+def distance_km(lat1,lon1,lat2,lon2):
 
-now = ref_df.iloc[0]
+    R=6371
 
-status_text, status_class = get_status(now["PM2.5"])
+    dlat=math.radians(lat2-lat1)
+    dlon=math.radians(lon2-lon1)
 
-# ===== Top Info =====
-col1, col2, col3 = st.columns(3)
+    a=math.sin(dlat/2)**2+math.cos(math.radians(lat1))*math.cos(math.radians(lat2))*math.sin(dlon/2)**2
+    c=2*math.atan2(math.sqrt(a),math.sqrt(1-a))
 
-col1.metric("🌡 Temp", f"{now['Temp']:.1f} °C")
-col2.metric("💨 Wind", f"{now['WS']:.1f} m/s")
-col3.metric("🌫 PM2.5", f"{now['PM2.5']:.1f}")
+    return R*c
 
-st.markdown(f"<div class='big {status_class}'>สถานะอากาศ: {status_text}</div>", unsafe_allow_html=True)
+# ---------------- Map ----------------
 
-# =========================
-# MAP
-# =========================
-st.subheader("🗺 แผนที่")
+if "station" in st.session_state:
+    map_center = st.session_state.station
+else:
+    map_center = [center_lat,center_lon]
 
-m = folium.Map(location=[LAT, LON], zoom_start=12)
+m = folium.Map(
+location=map_center,
+zoom_start=12,
+control_scale=True,
+tiles="OpenStreetMap"
+)
 
-# จุดโรงงาน
-folium.Marker(
-    [LAT, LON],
-    tooltip="โรงงาน",
-    icon=folium.Icon(color="red")
+folium.TileLayer(
+tiles="https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}",
+name="ดาวเทียม",
+attr="Google"
 ).add_to(m)
 
-# ลูกศรลม (จำลอง)
-wind_lat = LAT + (now["WS"] * 0.01)
-wind_lon = LON + (now["WS"] * 0.01)
+# ---------------- จุดตรวจวัด ----------------
 
-folium.PolyLine(
-    locations=[[LAT, LON], [wind_lat, wind_lon]],
-    color="blue"
-).add_to(m)
+if "station" in st.session_state:
 
-st_folium(m, width=700)
+    folium.Marker(
+        st.session_state.station,
+        tooltip="🟢 จุดตรวจวัด",
+        icon=folium.Icon(color="green")
+    ).add_to(m)
 
-# =========================
-# CHART
-# =========================
-st.subheader("📊 กราฟ PM2.5")
+# ---------------- โรงงาน ----------------
 
-st.line_chart(ref_df.set_index("time")["PM2.5"])
+if "factories" in st.session_state:
+
+    for i,f in enumerate(st.session_state.factories):
+
+        folium.Marker(
+            f,
+            tooltip=f"🔴 โรงงาน {i+1}",
+            icon=folium.Icon(color="red")
+        ).add_to(m)
+
+        if "station" in st.session_state:
+
+            dist = distance_km(
+                st.session_state.station[0],
+                st.session_state.station[1],
+                f[0],
+                f[1]
+            )
+
+            folium.PolyLine(
+                [st.session_state.station, f],
+                color="blue",
+                tooltip=f"{dist:.2f} km"
+            ).add_to(m)
+
+# ---------------- Legend ----------------
+
+legend_html="""
+<div style="
+position: fixed;
+bottom: 40px;
+left: 40px;
+width: 200px;
+background-color: white;
+border:2px solid grey;
+z-index:9999;
+padding:10px;
+border-radius:8px;
+">
+
+<b>คำอธิบาย</b><br>
+
+🟢 จุดตรวจวัด<br>
+🔴 โรงงาน<br>
+🔵 ระยะทาง
+
+</div>
+"""
+
+m.get_root().html.add_child(folium.Element(legend_html))
+
+folium.LayerControl().add_to(m)
+
+map_data = st_folium(m,height=520,width=1200)
+
+# ---------------- คลิกปักหมุด ----------------
+
+if map_data and map_data.get("last_clicked"):
+
+    lat = map_data["last_clicked"]["lat"]
+    lon = map_data["last_clicked"]["lng"]
+
+    if pin_mode == "จุดตรวจวัด":
+
+        st.session_state.station=(lat,lon)
+
+    else:
+
+        if "factories" not in st.session_state:
+            st.session_state.factories=[]
+
+        st.session_state.factories.append((lat,lon))
+
+# ---------------- API ----------------
+
+@st.cache_data
+def fetch_api(lat,lon,start_date,num_days):
+
+    sd=start_date.strftime("%Y-%m-%d")
+    ed=(start_date+timedelta(days=num_days-1)).strftime("%Y-%m-%d")
+
+    weather=requests.get(
+f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m&start_date={sd}&end_date={ed}&timezone=Asia/Bangkok"
+).json()
+
+    air=requests.get(
+f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={lon}&hourly=carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone&start_date={sd}&end_date={ed}&timezone=Asia/Bangkok"
+).json()
+
+    w=weather["hourly"]
+    a=air["hourly"]
+
+    df=pd.DataFrame({
+"time":pd.to_datetime(w["time"]),
+"Temp":w["temperature_2m"],
+"RH":w["relative_humidity_2m"],
+"WS":w["wind_speed_10m"],
+"WD":w["wind_direction_10m"],
+"NO2_ref":a["nitrogen_dioxide"],
+"SO2_ref":a["sulphur_dioxide"],
+"CO_ref":a["carbon_monoxide"],
+"O3_ref":a["ozone"]
+})
+
+    return df
+
+# ---------------- Simulation ----------------
+
+def simulate(base):
+    return base * random.uniform(0.8,1.3)
+
+# ---------------- Run Simulation ----------------
+
+if st.button("🚀 เริ่มจำลองข้อมูล"):
+
+    if "station" not in st.session_state:
+        st.warning("กรุณาปักจุดตรวจวัดก่อน")
+        st.stop()
+
+    station = st.session_state.station
+
+    ref_df = fetch_api(station[0],station[1],start_date,num_days)
+
+    rows=[]
+
+    for i in range(num_days):
+
+        date=start_date+timedelta(days=i)
+
+        for h in range(24):
+
+            r=ref_df.iloc[i*24 + h]
+
+            rows.append({
+"Date":date,
+"Hour":h,
+"NO":random.uniform(5,20),
+"NO2":simulate(r["NO2_ref"]),
+"NOx":simulate(r["NO2_ref"]+random.uniform(2,5)),
+"SO2":simulate(r["SO2_ref"]),
+"CO":simulate(r["CO_ref"]),
+"O3":simulate(r["O3_ref"]),
+"WS":r["WS"],
+"WD":r["WD"],
+"Temp":r["Temp"],
+"RH":r["RH"],
+"Pressure":1010+random.uniform(-5,5)
+})
+
+    df=pd.DataFrame(rows)
+
+    st.subheader("📊 Dashboard")
+
+    st.line_chart(df.set_index("Hour")[["NO2","SO2","CO","O3"]])
+
+    st.subheader("📄 ตารางข้อมูล")
+
+    st.dataframe(df)
+
+    buf=BytesIO()
+
+    with pd.ExcelWriter(buf,engine="openpyxl") as writer:
+
+        df.to_excel(writer,index=False,sheet_name="Simulated Data")
+        ref_df.to_excel(writer,index=False,sheet_name="Reference Data")
+
+    st.download_button(
+        "📥 ดาวน์โหลด Excel",
+        buf.getvalue(),
+        file_name="AirCheckTH.xlsx"
+    )
